@@ -3,7 +3,7 @@
 ; Non-commercial use only
 
 #define MyAppName "ExpCore"
-#define MyAppVersion "1.0"
+#define MyAppVersion "1.1"
 #define MyAppPublisher "Iyan App"
 #define MyAppURL "https://www.iyansanjaya.com/"
 #define MyAppExeName "ExpCore.exe"
@@ -35,12 +35,12 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 ChangesAssociations=yes
 DisableProgramGroupPage=yes
-LicenseFile=C:\Users\Iyan Sanjaya\OneDrive\Desktop\ExpCore\LICENSE.txt
+LicenseFile={#SourcePath}\LICENSE.txt
 ; Uncomment the following line to run in non administrative install mode (install for current user only).
 ;PrivilegesRequired=lowest
 OutputDir=ExpCore
 OutputBaseFilename=ExpCore
-SetupIconFile=C:\Users\Iyan Sanjaya\OneDrive\Desktop\ExpCore\icon.ico
+SetupIconFile={#SourcePath}\icon.ico
 SolidCompression=yes
 WizardStyle=modern dynamic
 
@@ -51,8 +51,8 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
 
 [Files]
-Source: "C:\Users\Iyan Sanjaya\OneDrive\Desktop\ExpCore\ExpCore.dist\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
-Source: "C:\Users\Iyan Sanjaya\OneDrive\Desktop\ExpCore\ExpCore.dist\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{#SourcePath}\ExpCore.dist\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#SourcePath}\ExpCore.dist\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 ; NOTE: Don't use "Flags: ignoreversion" on any shared system files
 
 [Registry]
