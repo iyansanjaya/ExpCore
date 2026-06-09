@@ -1,0 +1,38 @@
+PERJANJIAN LISENSI PENGGUNA AKHIR (EULA)
+ExpCore oleh Iyan Sanjaya
+
+Terakhir diperbarui: 9 Juni 2026
+
+HARAP BACA PERJANJIAN INI DENGAN SEKSAMA SEBELUM MENGGUNAKAN PERANGKAT LUNAK INI.
+
+Dengan menginstal, menyalin, atau menggunakan perangkat lunak ExpCore ("Perangkat Lunak"), Anda menyetujui untuk terikat oleh ketentuan perjanjian lisensi ini. Jika Anda tidak menyetujui ketentuan ini, jangan menginstal atau menggunakan Perangkat Lunak.
+
+1. PEMBERIAN LISENSI
+Iyan Sanjaya ("Pemberi Lisensi") memberikan kepada Anda lisensi non-eksklusif, tidak dapat dipindahtangankan, dan terbatas untuk menginstal serta menggunakan Perangkat Lunak ini pada komputer pribadi Anda semata-mata untuk keperluan internal dan non-komersial.
+
+2. PEMBATASAN
+Anda TIDAK diperkenankan untuk:
+   a. Menyalin, memodifikasi, atau mendistribusikan ulang Perangkat Lunak ini tanpa izin tertulis dari Pemberi Lisensi.
+   b. Melakukan rekayasa balik (reverse engineering), dekompilasi, atau membongkar Perangkat Lunak.
+   c. Menjual, menyewakan, atau mensublisensikan Perangkat Lunak kepada pihak ketiga.
+   d. Menggunakan Perangkat Lunak untuk tujuan yang melanggar hukum.
+
+3. HAK KEKAYAAN INTELEKTUAL
+Perangkat Lunak ini dilindungi oleh hak cipta dan hukum kekayaan intelektual yang berlaku. Semua hak, kepemilikan, dan kepentingan atas Perangkat Lunak tetap menjadi milik Pemberi Lisensi.
+
+4. PENOLAKAN JAMINAN
+PERANGKAT LUNAK INI DISEDIAKAN "SEBAGAIMANA ADANYA" TANPA JAMINAN DALAM BENTUK APAPUN, BAIK TERSURAT MAUPUN TERSIRAT, TERMASUK NAMUN TIDAK TERBATAS PADA JAMINAN KELAYAKAN JUAL, KESESUAIAN UNTUK TUJUAN TERTENTU, DAN KETIADAAN PELANGGARAN.
+
+5. BATASAN TANGGUNG JAWAB
+DALAM KEADAAN APAPUN, PEMBERI LISENSI TIDAK BERTANGGUNG JAWAB ATAS KERUSAKAN LANGSUNG, TIDAK LANGSUNG, INSIDENTAL, KHUSUS, ATAU KONSEKUENSIAL YANG TIMBUL DARI PENGGUNAAN ATAU KETIDAKMAMPUAN MENGGUNAKAN PERANGKAT LUNAK INI.
+
+6. PENGAKHIRAN
+Lisensi ini berlaku sampai diakhiri. Lisensi akan berakhir secara otomatis jika Anda gagal mematuhi ketentuan apapun dalam perjanjian ini. Setelah pengakhiran, Anda harus menghapus semua salinan Perangkat Lunak dari komputer Anda.
+
+7. HUKUM YANG BERLAKU
+Perjanjian ini diatur oleh dan ditafsirkan sesuai dengan hukum Republik Indonesia.
+
+8. PERSETUJUAN
+Dengan menginstal Perangkat Lunak ini, Anda menyatakan telah membaca, memahami, dan menyetujui semua ketentuan dalam perjanjian lisensi ini.
+
+Hak Cipta (C) 2026 Iyan Sanjaya. Semua hak dilindungi undang-undang.
