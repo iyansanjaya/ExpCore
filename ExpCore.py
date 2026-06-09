@@ -497,7 +497,7 @@ class ExpCore(ctk.CTk):
             if semua_baris_data:
                 df = pd.DataFrame(semua_baris_data)
                 df.insert(0, 'No', range(1, len(df) + 1))
-                output_path = os.path.join(folder, "Hasil_Rekap_Bupot.xlsx")
+                output_path = os.path.join(folder, "!Hasil_Rekap_Bupot.xlsx")
 
                 with pd.ExcelWriter(output_path, engine='openpyxl') as writer:
                     df.to_excel(writer, index=False, sheet_name="Rekap")
