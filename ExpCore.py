@@ -58,13 +58,30 @@ class ExpCore(ctk.CTk):
         self.configure(fg_color=self.C["bg"])
 
         # ── Icon ──
+        # Set AppUserModelID agar Windows menampilkan ikon ExpCore di taskbar,
+        # bukan ikon Python/Nuitka default.
+        try:
+            import ctypes
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("iyansanjaya.expcore.1.0")
+        except Exception:
+            pass
+
         if "__compiled__" in dir():
             base_dir = os.path.dirname(sys.executable)
         else:
             base_dir = os.path.dirname(os.path.abspath(__file__))
-        icon_path = os.path.join(base_dir, "icon.ico")
-        if os.path.exists(icon_path):
-            self.after(200, lambda: self.iconbitmap(icon_path))
+
+        # iconbitmap (.ico) — untuk title bar & taskbar
+        ico_path = os.path.join(base_dir, "icon.ico")
+        if os.path.exists(ico_path):
+            self.after(200, lambda: self.iconbitmap(ico_path))
+
+        # iconphoto (.png) — resolusi lebih tinggi untuk alt-tab & taskbar
+        png_path = os.path.join(base_dir, "icon.png")
+        if os.path.exists(png_path):
+            from tkinter import PhotoImage
+            self._icon_img = PhotoImage(file=png_path)
+            self.iconphoto(True, self._icon_img)
 
         # ── State ──
         self.folder_path_bupot = ctk.StringVar(value="")

@@ -76,7 +76,7 @@ python ExpCore.py
 ### Compile ke Standalone `.exe` (Nuitka)
 
 ```bash
-python -m nuitka --standalone --disable-console --enable-plugin=tk-inter --include-data-files=icon.ico=icon.ico --windows-icon-from-ico=icon.ico ExpCore.py
+python -m nuitka --standalone --disable-console --enable-plugin=tk-inter --include-data-files=icon.ico=icon.ico --include-data-files=icon.png=icon.png --windows-icon-from-ico=icon.ico ExpCore.py
 ```
 
 > Perintah di atas akan menghasilkan folder `ExpCore.dist/` berisi executable beserta seluruh dependensi.
@@ -95,8 +95,9 @@ python -m nuitka --standalone --disable-console --enable-plugin=tk-inter --inclu
 ExpCore/
 ├── ExpCore.py        # Kode utama aplikasi (UI + logika ekstraksi)
 ├── ExpCore.iss       # Script Inno Setup untuk membuat installer
-├── icon.ico          # Ikon aplikasi
-├── LICENSE.txt       # Perjanjian lisensi (EULA)
+├── icon.ico          # Ikon aplikasi (multi-resolusi, untuk Windows)
+├── icon.png          # Ikon aplikasi HD (1024x1024, untuk taskbar & alt-tab)
+├── LICENSE.txt       # Apache License 2.0
 └── README.md         # Dokumentasi project
 ```
 
