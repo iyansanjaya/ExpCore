@@ -13,7 +13,7 @@
   <img src="https://img.shields.io/badge/python-3.10+-3776AB?style=flat-square&logo=python&logoColor=white" alt="Python" />
   <img src="https://img.shields.io/badge/platform-Windows-0078D6?style=flat-square&logo=windows&logoColor=white" alt="Platform" />
   <img src="https://img.shields.io/badge/version-1.0-7c3aed?style=flat-square" alt="Version" />
-  <img src="https://img.shields.io/badge/license-Proprietary-ef4444?style=flat-square" alt="License" />
+  <img src="https://img.shields.io/badge/license-Apache%202.0-blue?style=flat-square" alt="License" />
 </p>
 
 ---
@@ -122,5 +122,6 @@ ExpCore/
 
 ## 📄 Lisensi
 
-Proprietary — Hak Cipta © 2026 **Iyan Sanjaya**. Seluruh hak dilindungi undang-undang.  
-Lihat [LICENSE.txt](LICENSE.txt) untuk detail lengkap perjanjian lisensi.
+Dilisensikan di bawah **Apache License 2.0** — lihat [LICENSE.txt](LICENSE.txt) untuk detail lengkap.
+
+Copyright © 2026 Iyan Sanjaya.

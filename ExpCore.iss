@@ -35,7 +35,8 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 ChangesAssociations=yes
 DisableProgramGroupPage=yes
-LicenseFile={#SourcePath}\LICENSE.txt
+; LicenseFile is not used — Apache 2.0 does not require install-time agreement.
+; The license is included in the project root (LICENSE.txt) for reference.
 ; Uncomment the following line to run in non administrative install mode (install for current user only).
 ;PrivilegesRequired=lowest
 OutputDir=ExpCore
