@@ -20,15 +20,15 @@
 
 ## Fitur
 
-| Fitur | Deskripsi |
-| --- | --- |
-| **Bukti Potong** | Mengekstrak nama, status bukti, jenis PPh, objek pajak, DPP, tarif, PPh, dokumen dasar, dan data pemotong. |
-| **Pajak Masukan** | Mengekstrak pembeli, nomor faktur, rincian barang, harga, kuantitas, DPP, PPN, dan nilai netto. |
+| Fitur                       | Deskripsi                                                                                                               |
+| --------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| **Bukti Potong**            | Mengekstrak nama, status bukti, jenis PPh, objek pajak, DPP, tarif, PPh, dokumen dasar, dan data pemotong.              |
+| **Pajak Masukan**           | Mengekstrak pembeli, nomor faktur, rincian barang, harga, kuantitas, DPP, PPN, dan nilai netto.                         |
 | **Penamaan Otomatis Bupot** | Mempratinjau dan mengganti nama PDF menjadi <code>Nama Pemotong - Nomor Bukti - Masa Pajak - Sifat - Status.pdf</code>. |
-| **Pemindaian Subfolder** | Memproses seluruh PDF dalam folder induk dan semua subfolder menjadi satu hasil. |
-| **Output Terformat** | Menghasilkan Excel dengan format angka, header, lebar kolom otomatis, dan informasi folder sumber. |
+| **Pemindaian Subfolder**    | Memproses seluruh PDF dalam folder induk dan semua subfolder menjadi satu hasil.                                        |
+| **Output Terformat**        | Menghasilkan Excel dengan format angka, header, lebar kolom otomatis, dan informasi folder sumber.                      |
 
-Semua proses berjalan secara lokal. ExpCore tidak mengirim PDF atau hasil ekstraksi ke internet.
+Semua proses berjalan secara lokal. ExpCore TIDAK mengirim PDF atau hasil ekstraksi ke internet.
 
 ---
 
@@ -44,7 +44,7 @@ Semua proses berjalan secara lokal. ExpCore tidak mengirim PDF atau hasil ekstra
 
 ## Menjalankan dari Source
 
-~~~powershell
+```powershell
 git clone https://github.com/iyansanjaya/ExpCore.git
 cd ExpCore
 
@@ -53,13 +53,13 @@ python -m venv .venv
 python -m pip install --upgrade pip
 python -m pip install customtkinter pdfplumber pandas openpyxl
 python ExpCore.py
-~~~
+```
 
 Pastikan perintah <code>python</code> berasal dari virtual environment tersebut:
 
-~~~powershell
+```powershell
 python -c "import sys; print(sys.executable)"
-~~~
+```
 
 ---
 
@@ -86,10 +86,10 @@ Kolom **Folder Sumber** menunjukkan lokasi asal PDF ketika beberapa subfolder di
 
 PDF dengan data wajib yang tidak lengkap akan dilewati. Nama yang sudah digunakan tidak ditimpa; aplikasi menambahkan nomor seperti <code>(2)</code>. Setiap proses menghasilkan log audit:
 
-~~~text
+```text
 Log_Penamaan_Bupot_Pratinjau_YYYYMMDD_HHMMSS.csv
 Log_Penamaan_Bupot_Penerapan_YYYYMMDD_HHMMSS.csv
-~~~
+```
 
 ---
 
@@ -97,9 +97,9 @@ Log_Penamaan_Bupot_Penerapan_YYYYMMDD_HHMMSS.csv
 
 Pemeriksaan parser dan keamanan nama file:
 
-~~~powershell
+```powershell
 python test_expcore.py
-~~~
+```
 
 ---
 
@@ -109,16 +109,16 @@ python test_expcore.py
 
 Install dan verifikasi Nuitka pada interpreter yang sama dengan dependency aplikasi:
 
-~~~powershell
+```powershell
 python -m pip install Nuitka
 python -m nuitka --version
-~~~
+```
 
 Build standalone:
 
-~~~powershell
+```powershell
 python -m nuitka --mode=standalone --windows-console-mode=disable --enable-plugin=tk-inter --include-data-files=icon.ico=icon.ico --include-data-files=icon.png=icon.png --windows-icon-from-ico=icon.ico ExpCore.py
-~~~
+```
 
 Hasil build berada di <code>ExpCore.dist/</code>.
 
@@ -132,7 +132,7 @@ Hasil build berada di <code>ExpCore.dist/</code>.
 
 ## Struktur Utama
 
-~~~text
+```text
 ExpCore/
 ├── ExpCore.py          # UI dan logika aplikasi
 ├── ExpCore.iss         # Konfigurasi installer
@@ -141,7 +141,7 @@ ExpCore/
 ├── icon.png
 ├── LICENSE.txt
 └── README.md
-~~~
+```
 
 ---
 
