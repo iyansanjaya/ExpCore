@@ -290,7 +290,7 @@ class ExpCore(ctk.CTk):
         f.grid_columnconfigure(0, weight=1)
 
         ctk.CTkLabel(
-            f, text="Folder",
+            f, text="Folder Induk",
             font=ctk.CTkFont(size=12, weight="bold"),
             text_color=self.C["text_sub"],
         ).grid(row=0, column=0, columnspan=2, padx=16, pady=(14, 6), sticky="w")
@@ -300,7 +300,7 @@ class ExpCore(ctk.CTk):
     def _folder_entry(self, parent, var):
         e = ctk.CTkEntry(
             parent, textvariable=var, state="readonly",
-            placeholder_text="Belum ada folder dipilih",
+            placeholder_text="Belum ada folder induk dipilih",
             height=40, corner_radius=8,
             fg_color=self.C["input_bg"],
             border_color=self.C["border"],
@@ -422,9 +422,9 @@ class ExpCore(ctk.CTk):
             messagebox.showwarning("Peringatan", "Silakan pilih folder terlebih dahulu!")
             return
 
-        pdf_files = glob.glob(os.path.join(folder, "*.pdf"))
+        pdf_files = sorted(glob.glob(os.path.join(folder, "**", "*.pdf"), recursive=True))
         if not pdf_files:
-            messagebox.showerror("Error", "Tidak ada file PDF di folder tersebut!")
+            messagebox.showerror("Error", "Tidak ada file PDF di folder atau subfolder tersebut!")
             return
 
         self.btn_process_bupot.configure(state="disabled")
@@ -435,7 +435,8 @@ class ExpCore(ctk.CTk):
         try:
             for file_pdf in pdf_files:
                 nama_file = os.path.basename(file_pdf)
-                self.log_bupot(f"Membaca {nama_file}")
+                folder_sumber = os.path.relpath(os.path.dirname(file_pdf), folder)
+                self.log_bupot(f"Membaca {os.path.relpath(file_pdf, folder)}")
 
                 with pdfplumber.open(file_pdf) as pdf:
                     teks_lengkap = "\n".join([p.extract_text() for p in pdf.pages if p.extract_text()])
@@ -491,7 +492,8 @@ class ExpCore(ctk.CTk):
                                 "DPP (Rp)": self.parse_values(dpp_str), "Tarif (%)": self.parse_tarif(tarif_str),
                                 "Pajak Penghasilan (Rp)": self.parse_values(pph_str), "Jenis Dokumen": jenis_dokumen,
                                 "Nomor Dokumen Dasar": nomor_dokumen, "NPWP/NIK Pemotong": npwp_pemotong,
-                                "Nama Pemotong": nama_pemotong, "Tanggal": tanggal_bupot, "File Name": nama_file
+                                "Nama Pemotong": nama_pemotong, "Tanggal": tanggal_bupot,
+                                "Folder Sumber": folder_sumber, "File Name": nama_file
                             })
 
             if semua_baris_data:
@@ -546,9 +548,9 @@ class ExpCore(ctk.CTk):
             messagebox.showwarning("Peringatan", "Silakan pilih folder terlebih dahulu!")
             return
 
-        pdf_files = glob.glob(os.path.join(folder, "*.pdf"))
+        pdf_files = sorted(glob.glob(os.path.join(folder, "**", "*.pdf"), recursive=True))
         if not pdf_files:
-            messagebox.showerror("Error", "Tidak ada file PDF di folder tersebut!")
+            messagebox.showerror("Error", "Tidak ada file PDF di folder atau subfolder tersebut!")
             return
 
         self.btn_process_pm.configure(state="disabled")
@@ -559,7 +561,8 @@ class ExpCore(ctk.CTk):
         try:
             for file_pdf in pdf_files:
                 nama_file = os.path.basename(file_pdf)
-                self.log_pm(f"Membaca {nama_file}")
+                folder_sumber = os.path.relpath(os.path.dirname(file_pdf), folder)
+                self.log_pm(f"Membaca {os.path.relpath(file_pdf, folder)}")
 
                 try:
                     with pdfplumber.open(file_pdf) as pdf:
@@ -614,14 +617,15 @@ class ExpCore(ctk.CTk):
                                                 "Kode dan Nomor Seri Faktur Pajak": no_seri, "No": no_urut,
                                                 "Kode Barang": kode_barang, "Nama Barang": nama_barang,
                                                 "Harga": harga, "Qty": qty, "Satuan": satuan, "Potongan Harga": potongan_harga,
-                                                "DPP": dpp, "PPN": ppn, "NETTO": netto, "Nama File PDF": nama_file
+                                                "DPP": dpp, "PPN": ppn, "NETTO": netto,
+                                                "Folder Sumber": folder_sumber, "Nama File PDF": nama_file
                                             })
                                             no_urut += 1
                 except Exception as inner_e:
                     self.log_pm(f"Gagal: {nama_file} — {str(inner_e)}")
 
             if semua_baris_data:
-                kolom_urutan = ['Nama Pembeli', 'NPWP Pembeli', 'Kode dan Nomor Seri Faktur Pajak', 'No', 'Kode Barang', 'Nama Barang', 'Harga', 'Qty', 'Satuan', 'Potongan Harga', 'DPP', 'PPN', 'NETTO', 'Nama File PDF']
+                kolom_urutan = ['Nama Pembeli', 'NPWP Pembeli', 'Kode dan Nomor Seri Faktur Pajak', 'No', 'Kode Barang', 'Nama Barang', 'Harga', 'Qty', 'Satuan', 'Potongan Harga', 'DPP', 'PPN', 'NETTO', 'Folder Sumber', 'Nama File PDF']
                 df = pd.DataFrame(semua_baris_data, columns=kolom_urutan)
                 output_path = os.path.join(folder, "Hasil_Pajak_Masukan.xlsx")
 
