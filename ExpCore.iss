@@ -3,7 +3,7 @@
 ; Non-commercial use only
 
 #define MyAppName "ExpCore"
-#define MyAppVersion "1.1.1"
+#define MyAppVersion "1.2"
 #define MyAppPublisher "Iyan App"
 #define MyAppURL "https://www.iyansanjaya.com/"
 #define MyAppExeName "ExpCore.exe"

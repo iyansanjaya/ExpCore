@@ -76,7 +76,7 @@ python ExpCore.py
 ### Compile ke Standalone `.exe` (Nuitka)
 
 ```bash
-python -m nuitka --standalone --disable-console --enable-plugin=tk-inter --include-data-files=icon.ico=icon.ico --include-data-files=icon.png=icon.png --windows-icon-from-ico=icon.ico ExpCore.py
+& "$env:LOCALAPPDATA\Python\pythoncore-3.14-64\python.exe" -m nuitka --standalone --disable-console --enable-plugin=tk-inter --include-data-files=icon.ico=icon.ico --include-data-files=icon.png=icon.png --windows-icon-from-ico=icon.ico ExpCore.py
 ```
 
 > Perintah di atas akan menghasilkan folder `ExpCore.dist/` berisi executable beserta seluruh dependensi.

@@ -2,6 +2,8 @@ import os
 import sys
 import glob
 import re
+import csv
+import unicodedata
 import pdfplumber
 import pandas as pd
 import customtkinter as ctk
@@ -86,6 +88,7 @@ class ExpCore(ctk.CTk):
         # ── State ──
         self.folder_path_bupot = ctk.StringVar(value="")
         self.folder_path_pm = ctk.StringVar(value="")
+        self.folder_path_rename = ctk.StringVar(value="")
         self._anim_id = None
 
         self._build()
@@ -113,7 +116,7 @@ class ExpCore(ctk.CTk):
         self.sidebar.grid(row=0, column=0, sticky="nsew")
         self.sidebar.grid_propagate(False)
         self.sidebar.grid_columnconfigure(0, weight=1)
-        self.sidebar.grid_rowconfigure(5, weight=1)
+        self.sidebar.grid_rowconfigure(6, weight=1)
 
         # ── Brand ──
         ctk.CTkLabel(
@@ -138,18 +141,22 @@ class ExpCore(ctk.CTk):
             self.sidebar, "Pajak Masukan", 3,
             lambda: self._navigate("pm"),
         )
+        self.nav["rename"] = self._make_nav(
+            self.sidebar, "Penamaan Bupot", 4,
+            lambda: self._navigate("rename"),
+        )
 
         # ── Divider ──
         ctk.CTkFrame(
             self.sidebar, height=1, fg_color=self.C["border"],
-        ).grid(row=4, column=0, padx=20, pady=(20, 0), sticky="ew")
+        ).grid(row=5, column=0, padx=20, pady=(20, 0), sticky="ew")
 
         # ── Version ──
         ctk.CTkLabel(
-            self.sidebar, text="v1.1.1",
+            self.sidebar, text="v1.2",
             font=ctk.CTkFont(size=10),
             text_color=self.C["text_muted"],
-        ).grid(row=6, column=0, padx=24, pady=(0, 20), sticky="sw")
+        ).grid(row=7, column=0, padx=24, pady=(0, 20), sticky="sw")
 
     def _make_nav(self, parent, label, row, cmd):
         """Membuat tombol navigasi sidebar — minimalis, tanpa ikon."""
@@ -202,6 +209,7 @@ class ExpCore(ctk.CTk):
         self.pages = {}
         self._page_bupot()
         self._page_pm()
+        self._page_rename_bupot()
 
     # ══════════════════════════════════════════
     #  HALAMAN — BUKTI POTONG
@@ -256,6 +264,45 @@ class ExpCore(ctk.CTk):
             command=self.process_pm,
         )
         self.btn_process_pm.grid(row=3, column=0, sticky="ew", pady=(12, 0))
+
+    def _page_rename_bupot(self):
+        p = self._page_frame()
+        self.pages["rename"] = p
+
+        self._heading(
+            p, "Penamaan Otomatis Bupot",
+            "Pratinjau lalu ganti nama PDF berdasarkan identitas Bukti Potong.",
+            row=0,
+        )
+
+        pick = self._picker_frame(p, row=1)
+        self.entry_rename = self._folder_entry(pick, self.folder_path_rename)
+        self._browse_btn(pick, lambda: self.browse_folder(self.folder_path_rename, self.log_rename))
+
+        log_wrap = self._log_frame(p, row=2)
+        self.log_rename_box = self._log_box(log_wrap)
+
+        actions = ctk.CTkFrame(p, fg_color="transparent")
+        actions.grid(row=3, column=0, sticky="ew", pady=(12, 0))
+        actions.grid_columnconfigure(0, weight=1)
+        actions.grid_columnconfigure(1, weight=1)
+
+        self.btn_preview_rename = ctk.CTkButton(
+            actions, text="Pratinjau Nama", height=44, corner_radius=8,
+            fg_color=self.C["surface_hover"], hover_color=self.C["border_focus"],
+            border_width=1, border_color=self.C["border"],
+            text_color=self.C["text"], font=ctk.CTkFont(size=14, weight="bold"),
+            command=lambda: self.process_rename_bupot(apply_changes=False),
+        )
+        self.btn_preview_rename.grid(row=0, column=0, sticky="ew", padx=(0, 6))
+
+        self.btn_apply_rename = ctk.CTkButton(
+            actions, text="Terapkan Nama", height=44, corner_radius=8,
+            fg_color=self.C["accent"], hover_color=self.C["accent_hover"],
+            text_color="#ffffff", font=ctk.CTkFont(size=14, weight="bold"),
+            command=lambda: self.process_rename_bupot(apply_changes=True),
+        )
+        self.btn_apply_rename.grid(row=0, column=1, sticky="ew", padx=(6, 0))
 
     # ══════════════════════════════════════════
     #  KOMPONEN UI (reusable, bersih)
@@ -375,6 +422,9 @@ class ExpCore(ctk.CTk):
     def log_pm(self, msg):
         self._log(self.log_pm_box, msg)
 
+    def log_rename(self, msg):
+        self._log(self.log_rename_box, msg)
+
     def _log(self, tb, msg):
         tb.configure(state="normal")
         tb.insert("end", f"{self._ts()}  {msg}\n")
@@ -412,6 +462,207 @@ class ExpCore(ctk.CTk):
         v = v.replace(',', '.')
         try: return float(v)
         except: return 0.0
+
+    @staticmethod
+    def _clean_filename_value(value):
+        value = unicodedata.normalize("NFKC", str(value or "")).replace("\u00a0", " ")
+        return re.sub(r"\s+", " ", value).strip(" :-–—\t\r\n")
+
+    @staticmethod
+    def _safe_filename(value, max_len=180):
+        value = ExpCore._clean_filename_value(value)
+        value = re.sub(r'[<>:"/\\|?*\x00-\x1f]', " ", value)
+        value = re.sub(r"\s+", " ", value).rstrip(". ").strip()
+        return (value or "UNKNOWN")[:max_len].rstrip(". ")
+
+    @staticmethod
+    def _extract_rename_bupot_data(text):
+        # ponytail: tambah fallback hanya saat ada contoh layout Coretax yang benar-benar gagal.
+        text = unicodedata.normalize("NFKC", text or "").replace("\u00a0", " ")
+        text_flat = re.sub(r"\s+", " ", text)
+        top_text = text[:2500]
+        data = {
+            "NAMA_PEMOTONG": "",
+            "NOMOR_BUKTI": "",
+            "MASA_PAJAK": "",
+            "SIFAT": "",
+            "STATUS": "",
+        }
+
+        name_patterns = [
+            r"C\.?\s*3\s*(?:NAMA\s*)?PEMOTONG.*?[:：]\s*(.*?)\s*C\.?\s*4\b",
+            r"C\.?\s*3\s*NAMA\s*PEMOTONG[^:：]*[:：]\s*([^\n\r]{2,100})",
+            r"NAMA\s*PEMOTONG\s*DAN/?ATAU\s*PEMUNGUT\s*PPh\s*[:：]?\s*([^\n\r]{2,100})",
+        ]
+        for pattern in name_patterns:
+            match = re.search(pattern, text_flat if "C\\.?\\s*4" in pattern else text, re.IGNORECASE)
+            if match:
+                data["NAMA_PEMOTONG"] = ExpCore._clean_filename_value(match.group(1))
+                break
+
+        header = re.search(
+            r"\b([A-Z0-9-]{8,20})\s+(\d{2}-\d{4})\s+"
+            r"(TIDAK\s*FINAL|FINAL)\s+"
+            r"(NORMAL|PEMBETULAN(?:\s*(?:KE-?)?\s*\d+)?|DIBATALKAN)\b",
+            top_text,
+            re.IGNORECASE,
+        )
+        if header:
+            data["NOMOR_BUKTI"] = ExpCore._clean_filename_value(header.group(1)).upper()
+            data["MASA_PAJAK"] = ExpCore._clean_filename_value(header.group(2)).upper()
+            data["SIFAT"] = ExpCore._clean_filename_value(header.group(3)).upper()
+            data["STATUS"] = ExpCore._clean_filename_value(header.group(4)).upper()
+            return data
+
+        match = re.search(r"\b(\d{2}-\d{4})\b", top_text)
+        if match:
+            data["MASA_PAJAK"] = match.group(1)
+
+        match = re.search(r"\b(TIDAK\s*FINAL|FINAL)\b", top_text, re.IGNORECASE)
+        if match:
+            data["SIFAT"] = ExpCore._clean_filename_value(match.group(1)).upper()
+
+        match = re.search(
+            r"\b(NORMAL|PEMBETULAN(?:\s*(?:KE-?)?\s*\d+)?|DIBATALKAN)\b",
+            top_text,
+            re.IGNORECASE,
+        )
+        if match:
+            data["STATUS"] = ExpCore._clean_filename_value(match.group(1)).upper()
+
+        for candidate in re.findall(r"\b[A-Z0-9-]{8,20}\b", top_text.upper()):
+            if any(ch.isalpha() for ch in candidate) and any(ch.isdigit() for ch in candidate):
+                data["NOMOR_BUKTI"] = candidate
+                break
+
+        return data
+
+    @staticmethod
+    def _unique_filename(path):
+        if not os.path.exists(path):
+            return path
+        stem, suffix = os.path.splitext(path)
+        number = 2
+        while os.path.exists(f"{stem} ({number}){suffix}"):
+            number += 1
+        return f"{stem} ({number}){suffix}"
+
+    def process_rename_bupot(self, apply_changes=False):
+        folder = self.folder_path_rename.get()
+        if not folder or not os.path.isdir(folder):
+            messagebox.showwarning("Peringatan", "Silakan pilih folder induk terlebih dahulu!")
+            return
+
+        pdf_files = sorted(glob.glob(os.path.join(folder, "**", "*.pdf"), recursive=True))
+        if not pdf_files:
+            messagebox.showerror("Error", "Tidak ada file PDF di folder atau subfolder tersebut!")
+            return
+
+        if apply_changes and not messagebox.askyesno(
+            "Konfirmasi",
+            f"Ganti nama {len(pdf_files)} PDF yang datanya lengkap?\n\n"
+            "PDF dengan data tidak lengkap akan dilewati.",
+        ):
+            return
+
+        button = self.btn_apply_rename if apply_changes else self.btn_preview_rename
+        label = "Terapkan Nama" if apply_changes else "Pratinjau Nama"
+        color = self.C["accent"] if apply_changes else self.C["surface_hover"]
+        self.btn_preview_rename.configure(state="disabled")
+        self.btn_apply_rename.configure(state="disabled")
+        self._pulse_start(button)
+
+        mode = "Penerapan" if apply_changes else "Pratinjau"
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        log_path = os.path.join(folder, f"Log_Penamaan_Bupot_{mode}_{timestamp}.csv")
+        fields = [
+            "status", "folder_sumber", "nama_lama", "nama_baru", "data_tidak_lengkap",
+            "NAMA_PEMOTONG", "NOMOR_BUKTI", "MASA_PAJAK", "SIFAT", "STATUS",
+        ]
+        complete = skipped = failed = unchanged = 0
+        self.log_rename(f"{mode}: memeriksa {len(pdf_files)} PDF …")
+
+        try:
+            with open(log_path, "w", newline="", encoding="utf-8-sig") as log_file:
+                writer = csv.DictWriter(log_file, fieldnames=fields)
+                writer.writeheader()
+
+                for file_pdf in pdf_files:
+                    relative_file = os.path.relpath(file_pdf, folder)
+                    folder_source = os.path.dirname(relative_file) or "."
+                    row = {
+                        "status": "ERROR",
+                        "folder_sumber": folder_source,
+                        "nama_lama": os.path.basename(file_pdf),
+                        "nama_baru": "",
+                        "data_tidak_lengkap": "exception",
+                    }
+                    try:
+                        with pdfplumber.open(file_pdf) as pdf:
+                            page_texts = []
+                            for page in pdf.pages:
+                                page_text = page.extract_text()
+                                if page_text:
+                                    page_texts.append(page_text)
+
+                        data = self._extract_rename_bupot_data("\n".join(page_texts))
+                        missing = [key for key, value in data.items() if not value]
+                        components = [
+                            self._safe_filename(data["NAMA_PEMOTONG"] or "UNKNOWN_NAMA", 80),
+                            self._safe_filename(data["NOMOR_BUKTI"] or "UNKNOWN_NOMOR", 30),
+                            self._safe_filename(data["MASA_PAJAK"] or "UNKNOWN_MASA", 20),
+                            self._safe_filename(data["SIFAT"] or "UNKNOWN_SIFAT", 20),
+                            self._safe_filename(data["STATUS"] or "UNKNOWN_STATUS", 30),
+                        ]
+                        new_name = f"{self._safe_filename(' - '.join(components))}.pdf"
+                        new_path = os.path.join(os.path.dirname(file_pdf), new_name)
+
+                        if missing:
+                            status = "DILEWATI" if apply_changes else "PERLU CEK"
+                            skipped += 1
+                        elif os.path.basename(file_pdf).casefold() == new_name.casefold():
+                            status = "SUDAH SESUAI"
+                            unchanged += 1
+                        elif apply_changes:
+                            new_path = self._unique_filename(new_path)
+                            os.rename(file_pdf, new_path)
+                            new_name = os.path.basename(new_path)
+                            status = "BERHASIL"
+                            complete += 1
+                        else:
+                            new_path = self._unique_filename(new_path)
+                            new_name = os.path.basename(new_path)
+                            status = "SIAP"
+                            complete += 1
+
+                        row.update({
+                            "status": status,
+                            "nama_baru": new_name,
+                            "data_tidak_lengkap": ", ".join(missing),
+                            **data,
+                        })
+                        self.log_rename(f"{status}: {relative_file} → {new_name}")
+                    except Exception as error:
+                        failed += 1
+                        self.log_rename(f"ERROR: {relative_file} — {error}")
+
+                    writer.writerow(row)
+                    log_file.flush()
+
+            summary = (
+                f"{mode} selesai — {complete} siap/berhasil, {unchanged} sudah sesuai, "
+                f"{skipped} perlu diperiksa, {failed} gagal."
+            )
+            self.log_rename(summary)
+            self.log_rename(f"Log: {log_path}")
+            messagebox.showinfo("Selesai", f"{summary}\n\nLog disimpan di:\n{log_path}")
+        except Exception as error:
+            self.log_rename(f"Error: {error}")
+            messagebox.showerror("Error", str(error))
+        finally:
+            self._pulse_stop(button, label, color)
+            self.btn_preview_rename.configure(state="normal")
+            self.btn_apply_rename.configure(state="normal")
 
     # ══════════════════════════════════════════
     #  EKSTRAKSI — BUKTI POTONG
