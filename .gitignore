@@ -1,3 +1,5 @@
 ExpCore.dist
 ExpCore.build
 ExpCOre/
+.venv/
+__pycache__/

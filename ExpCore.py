@@ -153,7 +153,7 @@ class ExpCore(ctk.CTk):
 
         # ── Version ──
         ctk.CTkLabel(
-            self.sidebar, text="v1.2",
+            self.sidebar, text="v1.3",
             font=ctk.CTkFont(size=10),
             text_color=self.C["text_muted"],
         ).grid(row=7, column=0, padx=24, pady=(0, 20), sticky="sw")
@@ -448,7 +448,8 @@ class ExpCore(ctk.CTk):
             self._anim_id = None
         btn.configure(text=label, state="normal", fg_color=color)
 
-    def parse_values(self, val_str):
+    @staticmethod
+    def parse_values(val_str):
         v = str(val_str).replace('%', '').replace('Rp', '').strip()
         if ',' in v:
             v = v.replace('.', '').replace(',', '.')
@@ -457,7 +458,8 @@ class ExpCore(ctk.CTk):
         try: return float(v)
         except: return 0.0
 
-    def parse_tarif(self, val_str):
+    @staticmethod
+    def parse_tarif(val_str):
         v = str(val_str).replace('%', '').strip()
         v = v.replace(',', '.')
         try: return float(v)
@@ -497,7 +499,9 @@ class ExpCore(ctk.CTk):
         for pattern in name_patterns:
             match = re.search(pattern, text_flat if "C\\.?\\s*4" in pattern else text, re.IGNORECASE)
             if match:
-                data["NAMA_PEMOTONG"] = ExpCore._clean_filename_value(match.group(1))
+                # Label "…DAN/ATAU PEMUNGUT PPh" terpotong baris, sisa "PPh" ikut tercapture.
+                nama = re.sub(r"\s*PPh\s*$", "", match.group(1), flags=re.IGNORECASE)
+                data["NAMA_PEMOTONG"] = ExpCore._clean_filename_value(nama)
                 break
 
         header = re.search(
@@ -667,6 +671,81 @@ class ExpCore(ctk.CTk):
     # ══════════════════════════════════════════
     #  EKSTRAKSI — BUKTI POTONG
     # ══════════════════════════════════════════
+    @classmethod
+    def _extract_bupot_rows(cls, teks_lengkap):
+        """Ambil semua baris objek pajak dari teks satu PDF Bukti Potong."""
+        teks_rata = teks_lengkap.replace('\n', ' ')
+
+        # Nomor bukti, masa pajak & status ada di header — logika sama dengan
+        # fitur penamaan otomatis, jadi dipakai ulang.
+        header = cls._extract_rename_bupot_data(teks_lengkap)
+        nomor_bukti = header["NOMOR_BUKTI"] or "-"
+        masa_pajak = header["MASA_PAJAK"] or "-"
+        status_bukti = header["STATUS"] or "NORMAL"
+        nama_pemotong = header["NAMA_PEMOTONG"] or "-"
+
+        match_nama = re.search(r'A\.2\s*NAMA\s*:\s*(.*?)\s*A\.3', teks_rata)
+        nama_penerima = match_nama.group(1).strip() if match_nama else "-"
+        match_npwp_penerima = re.search(r'A\.1\s*NPWP\s*/\s*NIK\s*:\s*(\d+)', teks_rata)
+        npwp_penerima = match_npwp_penerima.group(1) if match_npwp_penerima else "-"
+        match_fasilitas = re.search(r'B\.1\s*Jenis Fasilitas\s*:\s*(.*?)\s*B\.2', teks_rata, re.IGNORECASE)
+        jenis_fasilitas = match_fasilitas.group(1).strip() if match_fasilitas else "-"
+        match_jpph = re.search(r'B\.2\s*Jenis PPh\s*:\s*(.*?)\s*(?:KODE OBJEK PAJAK|B\.3)', teks_rata, re.IGNORECASE)
+        jenis_pph = match_jpph.group(1).strip() if match_jpph else "-"
+        # Tanggal dibatasi pola tanggal agar tidak menelan sisa label B.8 yang terpotong baris.
+        match_jenis_dok = re.search(
+            r'Jenis Dokumen\s*:\s*(.*?)\s*Tanggal\s*:\s*(\d{1,2}\s+\S+\s+\d{4})',
+            teks_rata, re.IGNORECASE,
+        )
+        jenis_dokumen = match_jenis_dok.group(1).strip() if match_jenis_dok else "-"
+        tanggal_dokumen = match_jenis_dok.group(2).strip() if match_jenis_dok else "-"
+        match_nodok = re.search(r'B\.9\s*Nomor Dokumen\s*:\s*(.*?)\s*B\.10', teks_rata, re.IGNORECASE)
+        nomor_dokumen = match_nodok.group(1).strip() if match_nodok else "-"
+        match_npwp_pemotong = re.search(r'C\.1\s*NPWP\s*/\s*NIK\s*:\s*([\d]+)', teks_rata)
+        npwp_pemotong = match_npwp_pemotong.group(1) if match_npwp_pemotong else "-"
+        match_tanggal = re.search(r'C\.4\s*TANGGAL\s*:\s*([A-Za-z0-9\s]+?)\s*C\.5', teks_rata)
+        tanggal_bupot = match_tanggal.group(1).strip() if match_tanggal else "-"
+
+        match_blok = re.search(r'B\.7\s*(.*?)\s*B\.8\s*Dokumen', teks_rata, re.IGNORECASE)
+        if not match_blok:
+            return []
+
+        baris_data = []
+        blok_tabel = match_blok.group(1).strip()
+        for m in re.finditer(r'(\d{2}-\d{3}-\d{2})\s+(.*?)(?=(?:\d{2}-\d{3}-\d{2})|$)', blok_tabel):
+            kode_objek = m.group(1)
+            isi_baris = m.group(2).strip()
+
+            pattern_angka = r'(?<!\S)(\d{1,3}(?:\.\d{3})*(?:,\d+)?)\s+(\d+(?:[\.,]\d+)?%?)\s+(\d{1,3}(?:\.\d{3})*(?:,\d+)?)(?!\S)'
+            match_angka = re.search(pattern_angka, isi_baris)
+
+            if match_angka:
+                dpp_str, tarif_str, pph_str = match_angka.groups()
+                objek_pajak_desc = isi_baris[:match_angka.start()] + " " + isi_baris[match_angka.end():]
+                objek_pajak_desc = re.sub(r'\s+', ' ', objek_pajak_desc).strip()
+            else:
+                tokens = isi_baris.split()
+                if len(tokens) >= 3:
+                    dpp_str, tarif_str, pph_str = tokens[-3], tokens[-2], tokens[-1]
+                    objek_pajak_desc = " ".join(tokens[:-3])
+                else:
+                    dpp_str, tarif_str, pph_str = "0", "0", "0"
+                    objek_pajak_desc = isi_baris
+
+            baris_data.append({
+                "Nomor Dokumen": nomor_bukti, "Masa Pajak": masa_pajak,
+                "NPWP/NIK": npwp_penerima, "Nama": nama_penerima,
+                "Status Bukti": status_bukti, "Jenis Fasilitas": jenis_fasilitas,
+                "Jenis PPh": jenis_pph, "Kode Objek Pajak": kode_objek, "Objek Pajak": objek_pajak_desc,
+                "DPP (Rp)": cls.parse_values(dpp_str), "Tarif (%)": cls.parse_tarif(tarif_str),
+                "Pajak Penghasilan (Rp)": cls.parse_values(pph_str), "Jenis Dokumen": jenis_dokumen,
+                "Nomor Dokumen Dasar": nomor_dokumen, "Tanggal Dokumen": tanggal_dokumen,
+                "NPWP/NIK Pemotong": npwp_pemotong, "Nama Pemotong": nama_pemotong,
+                "Tanggal Bukti Potong": tanggal_bupot,
+            })
+
+        return baris_data
+
     def process_bupot(self):
         folder = self.folder_path_bupot.get()
         if not os.path.exists(folder) or not folder:
@@ -691,61 +770,11 @@ class ExpCore(ctk.CTk):
 
                 with pdfplumber.open(file_pdf) as pdf:
                     teks_lengkap = "\n".join([p.extract_text() for p in pdf.pages if p.extract_text()])
-                    teks_rata = teks_lengkap.replace('\n', ' ')
 
-                    match_nama = re.search(r'A\.2\s*NAMA\s*:\s*(.*?)\s*A\.3', teks_rata)
-                    nama_penerima = match_nama.group(1).strip() if match_nama else "-"
-                    match_status = re.search(r'(NORMAL|PEMBETULAN)', teks_rata)
-                    status_bukti = match_status.group(1).strip() if match_status else "NORMAL"
-                    match_fasilitas = re.search(r'B\.1\s*Jenis Fasilitas\s*:\s*(.*?)\s*B\.2', teks_rata, re.IGNORECASE)
-                    jenis_fasilitas = match_fasilitas.group(1).strip() if match_fasilitas else "-"
-                    match_jpph = re.search(r'B\.2\s*Jenis PPh\s*:\s*(.*?)\s*(?:KODE OBJEK PAJAK|B\.3)', teks_rata, re.IGNORECASE)
-                    jenis_pph = match_jpph.group(1).strip() if match_jpph else "-"
-                    match_jenis_dok = re.search(r'Jenis Dokumen\s*:\s*(.*?)\s*Tanggal\s*:', teks_rata, re.IGNORECASE)
-                    jenis_dokumen = match_jenis_dok.group(1).strip() if match_jenis_dok else "-"
-                    match_nodok = re.search(r'B\.9\s*Nomor Dokumen\s*:\s*(.*?)\s*B\.10', teks_rata, re.IGNORECASE)
-                    nomor_dokumen = match_nodok.group(1).strip() if match_nodok else "-"
-                    match_npwp_pemotong = re.search(r'C\.1\s*NPWP\s*/\s*NIK\s*:\s*([\d]+)', teks_rata)
-                    npwp_pemotong = match_npwp_pemotong.group(1) if match_npwp_pemotong else "-"
-                    match_nama_pemotong = re.search(r'C\.3.*?NAMA PEMOTONG.*?\:\s*([A-Za-z0-9\s\.\,\&]+?)\s*C\.4', teks_rata, re.IGNORECASE)
-                    nama_pemotong = match_nama_pemotong.group(1).strip() if match_nama_pemotong else "-"
-                    match_tanggal = re.search(r'C\.4\s*TANGGAL\s*:\s*([A-Za-z0-9\s]+?)\s*C\.5', teks_rata)
-                    tanggal_bupot = match_tanggal.group(1).strip() if match_tanggal else "-"
-
-                    match_blok = re.search(r'B\.7\s*(.*?)\s*B\.8\s*Dokumen', teks_rata, re.IGNORECASE)
-                    if match_blok:
-                        blok_tabel = match_blok.group(1).strip()
-                        matches_baris = re.finditer(r'(\d{2}-\d{3}-\d{2})\s+(.*?)(?=(?:\d{2}-\d{3}-\d{2})|$)', blok_tabel)
-
-                        for m in matches_baris:
-                            kode_objek = m.group(1)
-                            isi_baris = m.group(2).strip()
-
-                            pattern_angka = r'(?<!\S)(\d{1,3}(?:\.\d{3})*(?:,\d+)?)\s+(\d+(?:[\.,]\d+)?%?)\s+(\d{1,3}(?:\.\d{3})*(?:,\d+)?)(?!\S)'
-                            match_angka = re.search(pattern_angka, isi_baris)
-
-                            if match_angka:
-                                dpp_str, tarif_str, pph_str = match_angka.groups()
-                                objek_pajak_desc = isi_baris[:match_angka.start()] + " " + isi_baris[match_angka.end():]
-                                objek_pajak_desc = re.sub(r'\s+', ' ', objek_pajak_desc).strip()
-                            else:
-                                tokens = isi_baris.split()
-                                if len(tokens) >= 3:
-                                    dpp_str, tarif_str, pph_str = tokens[-3], tokens[-2], tokens[-1]
-                                    objek_pajak_desc = " ".join(tokens[:-3])
-                                else:
-                                    dpp_str, tarif_str, pph_str = "0", "0", "0"
-                                    objek_pajak_desc = isi_baris
-
-                            semua_baris_data.append({
-                                "Nama": nama_penerima, "Status Bukti": status_bukti, "Jenis Fasilitas": jenis_fasilitas,
-                                "Jenis PPh": jenis_pph, "Kode Objek Pajak": kode_objek, "Objek Pajak": objek_pajak_desc,
-                                "DPP (Rp)": self.parse_values(dpp_str), "Tarif (%)": self.parse_tarif(tarif_str),
-                                "Pajak Penghasilan (Rp)": self.parse_values(pph_str), "Jenis Dokumen": jenis_dokumen,
-                                "Nomor Dokumen Dasar": nomor_dokumen, "NPWP/NIK Pemotong": npwp_pemotong,
-                                "Nama Pemotong": nama_pemotong, "Tanggal": tanggal_bupot,
-                                "Folder Sumber": folder_sumber, "File Name": nama_file
-                            })
+                for baris in self._extract_bupot_rows(teks_lengkap):
+                    baris["Folder Sumber"] = folder_sumber
+                    baris["File Name"] = nama_file
+                    semua_baris_data.append(baris)
 
             if semua_baris_data:
                 df = pd.DataFrame(semua_baris_data)
@@ -761,7 +790,8 @@ class ExpCore(ctk.CTk):
                         cell.font = Font(bold=True)
 
                     col_idx = {col: i+1 for i, col in enumerate(df.columns)}
-                    for col_name in ["Kode Objek Pajak", "Nomor Dokumen Dasar", "NPWP/NIK Pemotong"]:
+                    for col_name in ["Nomor Dokumen", "Masa Pajak", "NPWP/NIK", "Kode Objek Pajak",
+                                     "Nomor Dokumen Dasar", "NPWP/NIK Pemotong"]:
                         if col_name in col_idx:
                             for cell in ws[get_column_letter(col_idx[col_name])]: cell.number_format = '@'
 
