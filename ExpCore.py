@@ -88,6 +88,7 @@ class ExpCore(ctk.CTk):
         # ── State ──
         self.folder_path_bupot = ctk.StringVar(value="")
         self.folder_path_pm = ctk.StringVar(value="")
+        self.folder_path_bupot2024 = ctk.StringVar(value="")
         self.folder_path_rename = ctk.StringVar(value="")
         self._anim_id = None
 
@@ -116,7 +117,7 @@ class ExpCore(ctk.CTk):
         self.sidebar.grid(row=0, column=0, sticky="nsew")
         self.sidebar.grid_propagate(False)
         self.sidebar.grid_columnconfigure(0, weight=1)
-        self.sidebar.grid_rowconfigure(6, weight=1)
+        self.sidebar.grid_rowconfigure(7, weight=1)
 
         # ── Brand ──
         ctk.CTkLabel(
@@ -134,29 +135,33 @@ class ExpCore(ctk.CTk):
         # ── Navigation ──
         self.nav = {}
         self.nav["bupot"] = self._make_nav(
-            self.sidebar, "Bukti Potong", 2,
+            self.sidebar, "Bukti Potong 2026", 2,
             lambda: self._navigate("bupot"),
         )
+        self.nav["bupot2024"] = self._make_nav(
+            self.sidebar, "Bukti Potong 2024", 3,
+            lambda: self._navigate("bupot2024"),
+        )
         self.nav["pm"] = self._make_nav(
-            self.sidebar, "Pajak Masukan", 3,
+            self.sidebar, "Pajak Masukan", 4,
             lambda: self._navigate("pm"),
         )
         self.nav["rename"] = self._make_nav(
-            self.sidebar, "Penamaan Bupot", 4,
+            self.sidebar, "Penamaan Bupot", 5,
             lambda: self._navigate("rename"),
         )
 
         # ── Divider ──
         ctk.CTkFrame(
             self.sidebar, height=1, fg_color=self.C["border"],
-        ).grid(row=5, column=0, padx=20, pady=(20, 0), sticky="ew")
+        ).grid(row=6, column=0, padx=20, pady=(20, 0), sticky="ew")
 
         # ── Version ──
         ctk.CTkLabel(
-            self.sidebar, text="v1.3",
+            self.sidebar, text="v1.4",
             font=ctk.CTkFont(size=10),
             text_color=self.C["text_muted"],
-        ).grid(row=7, column=0, padx=24, pady=(0, 20), sticky="sw")
+        ).grid(row=8, column=0, padx=24, pady=(0, 20), sticky="sw")
 
     def _make_nav(self, parent, label, row, cmd):
         """Membuat tombol navigasi sidebar — minimalis, tanpa ikon."""
@@ -209,6 +214,7 @@ class ExpCore(ctk.CTk):
         self.pages = {}
         self._page_bupot()
         self._page_pm()
+        self._page_bupot_2024()
         self._page_rename_bupot()
 
     # ══════════════════════════════════════════
@@ -219,7 +225,7 @@ class ExpCore(ctk.CTk):
         self.pages["bupot"] = p
 
         # Header
-        self._heading(p, "Bukti Potong", "Ekstrak data PDF Bukti Potong Coretax ke Excel.", row=0)
+        self._heading(p, "Bukti Potong 2026", "Ekstrak data PDF Bukti Potong Coretax ke Excel.", row=0)
 
         # Folder picker
         pick = self._picker_frame(p, row=1)
@@ -264,6 +270,35 @@ class ExpCore(ctk.CTk):
             command=self.process_pm,
         )
         self.btn_process_pm.grid(row=3, column=0, sticky="ew", pady=(12, 0))
+
+    # ══════════════════════════════════════════
+    #  HALAMAN — BUKTI POTONG 2024 (formulir BPBS)
+    # ══════════════════════════════════════════
+    def _page_bupot_2024(self):
+        p = self._page_frame()
+        self.pages["bupot2024"] = p
+
+        self._heading(
+            p, "Bukti Potong 2024",
+            "Ekstrak data PDF Bukti Potong formulir BPBS (pra-Coretax) ke Excel.",
+            row=0,
+        )
+
+        pick = self._picker_frame(p, row=1)
+        self.entry_bupot2024 = self._folder_entry(pick, self.folder_path_bupot2024)
+        self._browse_btn(pick, lambda: self.browse_folder(self.folder_path_bupot2024, self.log_bupot2024))
+
+        log_wrap = self._log_frame(p, row=2)
+        self.log_bupot2024_box = self._log_box(log_wrap)
+
+        self.btn_process_bupot2024 = ctk.CTkButton(
+            p, text="Mulai Ekstrak", height=44, corner_radius=8,
+            fg_color=self.C["amber"], hover_color="#e0a91f",
+            text_color="#0f1117",
+            font=ctk.CTkFont(size=14, weight="bold"),
+            command=self.process_bupot_2024,
+        )
+        self.btn_process_bupot2024.grid(row=3, column=0, sticky="ew", pady=(12, 0))
 
     def _page_rename_bupot(self):
         p = self._page_frame()
@@ -422,6 +457,9 @@ class ExpCore(ctk.CTk):
     def log_pm(self, msg):
         self._log(self.log_pm_box, msg)
 
+    def log_bupot2024(self, msg):
+        self._log(self.log_bupot2024_box, msg)
+
     def log_rename(self, msg):
         self._log(self.log_rename_box, msg)
 
@@ -447,6 +485,44 @@ class ExpCore(ctk.CTk):
             self.after_cancel(self._anim_id)
             self._anim_id = None
         btn.configure(text=label, state="normal", fg_color=color)
+
+    @staticmethod
+    def _write_excel(df, output_path, sheet_name, text_cols=(), money_cols=()):
+        """Tulis DataFrame ke Excel dengan header, format angka, dan lebar kolom.
+
+        text_cols dipaksa format teks agar NPWP, masa pajak, dan nomor dokumen
+        tidak diubah Excel jadi angka atau tanggal.
+        """
+        with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
+            df.to_excel(writer, index=False, sheet_name=sheet_name)
+            ws = writer.sheets[sheet_name]
+
+            for cell in ws[1]:
+                cell.fill = PatternFill(start_color="D9D9D9", end_color="D9D9D9", fill_type="solid")
+                cell.font = Font(bold=True)
+
+            col_idx = {col: i + 1 for i, col in enumerate(df.columns)}
+            for col_name in text_cols:
+                if col_name in col_idx:
+                    for cell in ws[get_column_letter(col_idx[col_name])]:
+                        cell.number_format = '@'
+
+            for col_name in money_cols:
+                if col_name in col_idx:
+                    for cell in ws[get_column_letter(col_idx[col_name])][1:]:
+                        cell.number_format = '#,##0'
+
+            if "Tarif (%)" in col_idx:
+                for cell in ws[get_column_letter(col_idx["Tarif (%)"])][1:]:
+                    cell.number_format = '0.00'
+
+            if "No" in col_idx:
+                for cell in ws[get_column_letter(col_idx["No"])][1:]:
+                    cell.alignment = Alignment(horizontal='center')
+
+            for column in ws.columns:
+                max_length = max((len(str(cell.value)) for cell in column if cell.value), default=0)
+                ws.column_dimensions[column[0].column_letter].width = min(max_length + 2, 55)
 
     @staticmethod
     def parse_values(val_str):
@@ -781,33 +857,12 @@ class ExpCore(ctk.CTk):
                 df.insert(0, 'No', range(1, len(df) + 1))
                 output_path = os.path.join(folder, "!Hasil_Rekap_Bupot.xlsx")
 
-                with pd.ExcelWriter(output_path, engine='openpyxl') as writer:
-                    df.to_excel(writer, index=False, sheet_name="Rekap")
-                    ws = writer.sheets["Rekap"]
-
-                    for cell in ws[1]:
-                        cell.fill = PatternFill(start_color="D9D9D9", end_color="D9D9D9", fill_type="solid")
-                        cell.font = Font(bold=True)
-
-                    col_idx = {col: i+1 for i, col in enumerate(df.columns)}
-                    for col_name in ["Nomor Dokumen", "Masa Pajak", "NPWP/NIK", "Kode Objek Pajak",
-                                     "Nomor Dokumen Dasar", "NPWP/NIK Pemotong"]:
-                        if col_name in col_idx:
-                            for cell in ws[get_column_letter(col_idx[col_name])]: cell.number_format = '@'
-
-                    for col_name in ["DPP (Rp)", "Pajak Penghasilan (Rp)"]:
-                        if col_name in col_idx:
-                            for cell in ws[get_column_letter(col_idx[col_name])][1:]: cell.number_format = '#,##0'
-
-                    if "Tarif (%)" in col_idx:
-                        for cell in ws[get_column_letter(col_idx["Tarif (%)"])][1:]: cell.number_format = '0.00'
-
-                    if "No" in col_idx:
-                        for cell in ws[get_column_letter(col_idx["No"])][1:]: cell.alignment = Alignment(horizontal='center')
-
-                    for column in ws.columns:
-                        max_length = max((len(str(cell.value)) for cell in column if cell.value), default=0)
-                        ws.column_dimensions[column[0].column_letter].width = min(max_length + 2, 55)
+                self._write_excel(
+                    df, output_path, "Rekap",
+                    text_cols=["Nomor Dokumen", "Masa Pajak", "NPWP/NIK", "Kode Objek Pajak",
+                               "Nomor Dokumen Dasar", "NPWP/NIK Pemotong"],
+                    money_cols=["DPP (Rp)", "Pajak Penghasilan (Rp)"],
+                )
 
                 self.log_bupot(f"Selesai — {output_path}")
                 messagebox.showinfo("Selesai", f"Data Bupot berhasil disimpan di:\n{output_path}")
@@ -819,6 +874,182 @@ class ExpCore(ctk.CTk):
             messagebox.showerror("Error", str(e))
         finally:
             self._pulse_stop(self.btn_process_bupot, "Mulai Ekstrak", self.C["accent"])
+
+    # ══════════════════════════════════════════
+    #  EKSTRAKSI — BUKTI POTONG 2024 (formulir BPBS)
+    # ══════════════════════════════════════════
+    @staticmethod
+    def _despace_digits(value):
+        """'4 3 6 1 ...' -> '4361...'. Formulir BPBS menulis angka per kotak."""
+        return re.sub(r"\s+", "", value or "")
+
+    @staticmethod
+    def _form_date(value):
+        """'3 1 dd 0 1 mm 2 0 2 4 yyyy' -> '31-01-2024'. Kotak kosong -> ''."""
+        match = re.search(r"([\d\s]*?)dd\s*([\d\s]*?)mm\s*([\d\s]*?)yyyy", value or "")
+        if not match:
+            return ""
+        day, month, year = (ExpCore._despace_digits(g) for g in match.groups())
+        if not (day and month and year):
+            return ""
+        return f"{day.zfill(2)}-{month.zfill(2)}-{year}"
+
+    @classmethod
+    def _extract_bupot2024_rows(cls, teks_lengkap):
+        """Ambil baris objek pajak dari teks satu PDF Bukti Potong formulir BPBS.
+
+        Berbeda dari BPPU Coretax: angka ditulis per kotak (NPWP, tanggal) dan
+        sifat Final/Tidak Final ditandai centang "X" di depan labelnya.
+        """
+        teks = teks_lengkap or ""
+        teks_rata = re.sub(r"[ \t]+", " ", teks.replace("\n", " "))
+
+        def ambil(pattern, sumber=None, flags=re.IGNORECASE):
+            match = re.search(pattern, teks_rata if sumber is None else sumber, flags)
+            return match.group(1).strip() if match else ""
+
+        npwp = cls._despace_digits(ambil(r"A\.1\s*NPWP\s*:\s*([\d\s]*?)\s*A\.2"))
+        nik = cls._despace_digits(ambil(r"A\.2\s*NIK\s*:\s*([\d\s]*?)\s*A\.3"))
+        nama = ambil(r"A\.3\s*Nama\s*:\s*(.*?)\s*B\.\s*PAJAK")
+        objek_pajak = ambil(r"Keterangan Kode Objek Pajak\s*:\s*(.*?)\s*B\.7")
+        nomor_dokumen = ambil(r"B\.7.*?Nomor Dokumen\s+(\S+?)\s+Nama Dokumen")
+        nama_dokumen = ambil(r"Nama Dokumen\s+(.*?)\s+Tanggal\s")
+        tanggal_dokumen = cls._form_date(ambil(r"Nama Dokumen.*?Tanggal\s+(.*?yyyy)"))
+        npwp_pemotong = cls._despace_digits(ambil(r"C\.1\s*NPWP\s*:\s*([\d\s]*?)\s*C\.2"))
+        nama_pemotong = ambil(r"C\.2\s*Nama Wajib Pajak\s*:\s*(.*?)\s*C\.3")
+        tanggal_bukti = cls._form_date(ambil(r"C\.3\s*Tanggal\s*:\s*(.*?yyyy)"))
+        # Label C.5 terpotong baris, kata "elektronik" jatuh ke depan C.5.
+        penandatangan = ambil(r"C\.4\s*Nama Penandatangan\s*:\s*(.*?)\s*(?:elektronik\s+)?C\.5")
+
+        # Header H semuanya inline pada teks pdfplumber: nomor, pembetulan,
+        # dan tanda centang sifat. Centang muncul sebagai "X" antara nomor
+        # bagian dan labelnya, mis. "H.5 X PPh Tidak Final".
+        nomor_bukti = cls._despace_digits(ambil(r"H\.1\s*NOMOR\s*:\s*([\d\s]*?)\s*H\.\d"))
+        pembetulan_str = ambil(r"H\.2\s*Pembetulan\s*Ke-\s*(\d+)")
+        pembetulan = int(pembetulan_str) if pembetulan_str.isdigit() else 0
+        dibatalkan = bool(ambil(r"H\.3\s*(X)\s*Pembatalan"))
+        final = bool(ambil(r"H\.4\s*(X)\s*PPh\s*Final"))
+        tidak_final = bool(ambil(r"H\.5\s*(X)\s*PPh\s*Tidak\s*Final"))
+
+        if dibatalkan:
+            status_bukti = "DIBATALKAN"
+        elif pembetulan:
+            status_bukti = f"PEMBETULAN KE-{pembetulan}"
+        else:
+            status_bukti = "NORMAL"
+
+        # Tepat satu kotak harus tercentang; selain itu jangan menebak.
+        sifat = "-" if final == tidak_final else ("FINAL" if final else "TIDAK FINAL")
+
+        baris_data = []
+        pola_baris = (
+            r"(\d{1,2}-\d{4})\s+(\d{2}-\d{3}-\d{2})\s+([\d.]+,\d{2})\s+"
+            r"(?:(X)\s+)?(\d+[.,]\d+)\s+([\d.]+,\d{2})"
+        )
+        for match in re.finditer(pola_baris, teks):
+            masa, kode_objek, dpp, tarif_tinggi, tarif, pph = match.groups()
+            bulan, tahun = masa.split("-")
+            baris_data.append({
+                "Nomor Bukti Potong": nomor_bukti or "-",
+                "Pembetulan Ke": pembetulan,
+                "Status Bukti": status_bukti,
+                "Sifat": sifat,
+                "NPWP": npwp or "-",
+                "NIK": nik or "-",
+                "Nama": nama or "-",
+                "Masa Pajak": f"{bulan.zfill(2)}-{tahun}",
+                "Kode Objek Pajak": kode_objek,
+                "Objek Pajak": objek_pajak or "-",
+                "DPP (Rp)": cls.parse_values(dpp),
+                "Tarif Lebih Tinggi": "Ya" if tarif_tinggi else "Tidak",
+                "Tarif (%)": cls.parse_tarif(tarif),
+                "Pajak Penghasilan (Rp)": cls.parse_values(pph),
+                "Nomor Dokumen Referensi": nomor_dokumen or "-",
+                "Nama Dokumen": nama_dokumen or "-",
+                "Tanggal Dokumen": tanggal_dokumen or "-",
+                "NPWP Pemotong": npwp_pemotong or "-",
+                "Nama Pemotong": nama_pemotong or "-",
+                "Tanggal Bukti Potong": tanggal_bukti or "-",
+                "Nama Penandatangan": penandatangan or "-",
+            })
+        return baris_data
+
+    def process_bupot_2024(self):
+        folder = self.folder_path_bupot2024.get()
+        if not folder or not os.path.exists(folder):
+            messagebox.showwarning("Peringatan", "Silakan pilih folder terlebih dahulu!")
+            return
+
+        pdf_files = sorted(glob.glob(os.path.join(folder, "**", "*.pdf"), recursive=True))
+        if not pdf_files:
+            messagebox.showerror("Error", "Tidak ada file PDF di folder atau subfolder tersebut!")
+            return
+
+        self.btn_process_bupot2024.configure(state="disabled")
+        self._pulse_start(self.btn_process_bupot2024)
+        self.log_bupot2024(f"Memproses {len(pdf_files)} file …")
+
+        semua_baris_data = []
+        dilewati = 0
+        try:
+            for file_pdf in pdf_files:
+                nama_file = os.path.basename(file_pdf)
+                folder_sumber = os.path.relpath(os.path.dirname(file_pdf), folder)
+                relatif = os.path.relpath(file_pdf, folder)
+                self.log_bupot2024(f"Membaca {relatif}")
+
+                try:
+                    with pdfplumber.open(file_pdf) as pdf:
+                        teks_lengkap = "\n".join(
+                            p.extract_text() for p in pdf.pages if p.extract_text()
+                        )
+
+                    baris_pdf = self._extract_bupot2024_rows(teks_lengkap)
+                    if not baris_pdf:
+                        dilewati += 1
+                        self.log_bupot2024(f"DILEWATI: {relatif} — bukan formulir BPBS?")
+                        continue
+
+                    for baris in baris_pdf:
+                        baris["Folder Sumber"] = folder_sumber
+                        baris["File Name"] = nama_file
+                        semua_baris_data.append(baris)
+                except Exception as error:
+                    dilewati += 1
+                    self.log_bupot2024(f"GAGAL: {relatif} — {error}")
+
+            if semua_baris_data:
+                df = pd.DataFrame(semua_baris_data)
+                df.insert(0, "No", range(1, len(df) + 1))
+                output_path = os.path.join(folder, "!Hasil_Rekap_Bupot_2024.xlsx")
+                self._write_excel(
+                    df, output_path, "Rekap 2024",
+                    text_cols=[
+                        "Nomor Bukti Potong", "NPWP", "NIK", "Masa Pajak",
+                        "Kode Objek Pajak", "Nomor Dokumen Referensi", "NPWP Pemotong",
+                    ],
+                    money_cols=["DPP (Rp)", "Pajak Penghasilan (Rp)"],
+                )
+                self.log_bupot2024(
+                    f"Selesai — {len(semua_baris_data)} baris, {dilewati} file dilewati."
+                )
+                self.log_bupot2024(f"Output: {output_path}")
+                messagebox.showinfo(
+                    "Selesai",
+                    f"Data Bupot 2024 berhasil disimpan di:\n{output_path}",
+                )
+            else:
+                self.log_bupot2024("Tidak ada data yang ditemukan.")
+                messagebox.showwarning(
+                    "Tidak ada data",
+                    "Tidak ada PDF formulir BPBS yang bisa dibaca di folder tersebut.",
+                )
+
+        except Exception as e:
+            self.log_bupot2024(f"Error: {str(e)}")
+            messagebox.showerror("Error", str(e))
+        finally:
+            self._pulse_stop(self.btn_process_bupot2024, "Mulai Ekstrak", self.C["amber"])
 
     # ══════════════════════════════════════════
     #  EKSTRAKSI — PAJAK MASUKAN

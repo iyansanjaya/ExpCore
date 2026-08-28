@@ -81,6 +81,79 @@ C.5 NAMA PENANDATANGAN : I DEWA MADE SUSILA"""
 
     print("Rekap Bukti Potong: ok")
 
+    bupot2024 = """a r e a s t a p l e s
+BUKTI PEMOTONGAN/PEMUNGUTAN
+FORMULIR BPBS
+PPh PASAL 4 AYAT (2), PASAL 15, PASAL 22, DAN PASAL 23
+H.1 NOMOR : 2 0 0 0 0 0 0 0 0 1 H.4 PPh Final
+KEMENTERIAN KEUANGAN RI
+DIREKTORAT JENDERAL PAJAK H.2 Pembetulan Ke- 0 H.3 Pembatalan H.5 X PPh Tidak Final
+A. IDENTITAS WAJIB PAJAK YANG DIPOTONG/DIPUNGUT
+A.1 NPWP : 4 3 6 1 1 7 3 3 7 4 1 8 0 0 0
+A.2 NIK :
+A.3 Nama : MITRACOLL SARANA JAYA
+B. PAJAK PENGHASILAN YANG DIPOTONG/DIPUNGUT
+Masa Pajak Dikenakan Tarif Lebih PPh yang Dipotong/
+(mm-yyyy) Kode Objek Pajak Dasar Pengenaan Pajak (Rp) m Ti e n m g i g li i k ( i T N id P a W k P) Tarif (%) Dipungut/DTP (Rp)
+B.1 B.2 B.3 B.4 B.5 B.6
+1-2024 24-104-18 1.300.000,00 2.00 26.000,00
+Keterangan Kode Objek Pajak : Jasa Perantara dan/atau Keagenan
+B.7 Dokumen Referensi : Nomor Dokumen 1.3-01.24-0000407
+Nama Dokumen Surat Perjanjian Tanggal 3 1 dd 0 1 mm 2 0 2 4 yyyy
+B.8 Dokumen Referensi untuk Faktur Pajak, apabila ada :
+Nomor Faktur Pajak : Tanggal dd mm yyyy
+B.9 PPh dibebankan berdasarkan Surat Keterangan Bebas (SKB).
+Nomor : Tanggal dd mm yyyy
+B.10 PPh yang ditanggung oleh Pemerintah (DTP) berdasarkan :
+B.11 PPh dalam hal transaksi menggunakan Surat Keterangan berdasarkan PP Nomor 23 Tahun 2018 dengan Nomor :
+B.12 PPh yang dipotong/dipungut yang diberikan fasilitas PPh berdasarkan:
+C. IDENTITAS PEMOTONG/PEMUNGUT
+C.1 NPWP : 0 1 3 1 6 1 1 1 2 5 0 1 0 0 1
+C.2 Nama Wajib Pajak : BFI FINANCE INDONESIA TBK.
+C.3 Tanggal : 3 1 dd 0 1 mm 2 0 2 4 yyyy
+C.4 Nama Penandatangan : ARIEF LUTHFI BACHTIAR
+C.5 Pernyataan Wajib Pajak : Dengan ini saya menyatakan bahwa bukti Pemotongan/Pemungutan Unifikasi telah saya isi dengan benar dan telah saya tandatangani secara
+elektronik
+Apabila terdapat kesalahan/pembatalan dalam pembuatan Bukti Pemotongan/Pemungutan Unifikasi yang menyebabkan kelebihan
+pemotongan/pemungutan PPh atau pembayaran, atas kelebihan tersebut akan diajukan:
+Pengembalian atas kelebihan pembayaran pajak yang tidak seharusnya terutang oleh Pemotong dan/atau Pemungut PPh
+V Pemindahbukuan oleh Pemotong dan/atau Pemungut PPh
+Sesuai dengan ketentuan yang berlaku di, Direktorat Jenderal pajak mengatur bahwa Bukti Pemotongan/Pemungutan PPh Unifikasi ini
+9PT5ZJ6S dinyatakan sah dan tidak diperlukan tanda tangan basah pada Bukti Pemotongan ini."""
+    rows2024 = ExpCore._extract_bupot2024_rows(bupot2024)
+    assert len(rows2024) == 1, rows2024
+    assert rows2024[0] == {
+        "Nomor Bukti Potong": "2000000001",
+        "Pembetulan Ke": 0,
+        "Status Bukti": "NORMAL",
+        "Sifat": "TIDAK FINAL",
+        "NPWP": "436117337418000",
+        "NIK": "-",
+        "Nama": "MITRACOLL SARANA JAYA",
+        "Masa Pajak": "01-2024",
+        "Kode Objek Pajak": "24-104-18",
+        "Objek Pajak": "Jasa Perantara dan/atau Keagenan",
+        "DPP (Rp)": 1300000.0,
+        "Tarif Lebih Tinggi": "Tidak",
+        "Tarif (%)": 2.0,
+        "Pajak Penghasilan (Rp)": 26000.0,
+        "Nomor Dokumen Referensi": "1.3-01.24-0000407",
+        "Nama Dokumen": "Surat Perjanjian",
+        "Tanggal Dokumen": "31-01-2024",
+        "NPWP Pemotong": "013161112501001",
+        "Nama Pemotong": "BFI FINANCE INDONESIA TBK.",
+        "Tanggal Bukti Potong": "31-01-2024",
+        "Nama Penandatangan": "ARIEF LUTHFI BACHTIAR",
+    }
+
+    # Formulir Coretax (BPPU) tidak boleh ikut terbaca oleh parser BPBS.
+    assert ExpCore._extract_bupot2024_rows(bupot) == []
+    # Tanggal dengan kotak kosong menghasilkan string kosong, bukan crash.
+    assert ExpCore._form_date("Tanggal dd mm yyyy") == ""
+    assert ExpCore._form_date("3 1 dd 0 1 mm 2 0 2 4 yyyy") == "31-01-2024"
+
+    print("Rekap Bukti Potong 2024: ok")
+
 
 if __name__ == "__main__":
     main()

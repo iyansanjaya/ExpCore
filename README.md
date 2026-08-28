@@ -22,7 +22,8 @@
 
 | Fitur                       | Deskripsi                                                                                                               |
 | --------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| **Bukti Potong**            | Mengekstrak nomor dokumen, masa pajak, NPWP/NIK, nama, status bukti, jenis PPh, objek pajak, DPP, tarif, PPh, dokumen dasar, dan data pemotong. |
+| **Bukti Potong 2026**       | Mengekstrak nomor dokumen, masa pajak, NPWP/NIK, nama, status bukti, jenis PPh, objek pajak, DPP, tarif, PPh, dokumen dasar, dan data pemotong. |
+| **Bukti Potong 2024**       | Mengekstrak PDF formulir **BPBS** (pra-Coretax): nomor bukti, pembetulan, NPWP/NIK, masa pajak, objek pajak, DPP, tarif, PPh, dokumen referensi, dan data pemotong. |
 | **Pajak Masukan**           | Mengekstrak pembeli, nomor faktur, rincian barang, harga, kuantitas, DPP, PPN, dan nilai netto.                         |
 | **Penamaan Otomatis Bupot** | Mempratinjau dan mengganti nama PDF menjadi <code>Nama Pemotong - Nomor Bukti - Masa Pajak - Sifat - Status.pdf</code>. |
 | **Pemindaian Subfolder**    | Memproses seluruh PDF dalam folder induk dan semua subfolder menjadi satu hasil.                                        |
@@ -80,13 +81,24 @@ Verifikasi environment sudah benar. Perintah berikut harus mencetak <code>lengka
 
 ### Ekstraksi Bukti Potong atau Pajak Masukan
 
-1. Pilih menu **Bukti Potong** atau **Pajak Masukan**.
+1. Pilih menu **Bukti Potong 2026**, **Bukti Potong 2024**, atau **Pajak Masukan**.
 2. Pilih folder biasa atau folder induk.
 3. Klik **Mulai Ekstrak**.
 4. Aplikasi memproses seluruh PDF di folder tersebut dan semua subfolder.
 5. Satu file Excel disimpan di folder yang dipilih:
-   - Bukti Potong: <code>!Hasil_Rekap_Bupot.xlsx</code>
+   - Bukti Potong 2026: <code>!Hasil_Rekap_Bupot.xlsx</code>
    - Pajak Masukan: <code>Hasil_Pajak_Masukan.xlsx</code>
+   - Bukti Potong 2024: <code>!Hasil_Rekap_Bupot_2024.xlsx</code>
+
+**Memilih menu yang tepat.** Kedua modul Bukti Potong membaca formulir yang berbeda dan
+tidak saling menggantikan:
+
+| Menu | Formulir | Ciri di PDF |
+| --- | --- | --- |
+| **Bukti Potong 2026** | BPPU (Coretax) | Judul <code>BUKTI PEMOTONGAN DAN/ATAU PEMUNGUTAN PPh</code>, bagian <code>B.3</code>–<code>B.11</code> |
+| **Bukti Potong 2024** | BPBS (pra-Coretax) | Judul <code>FORMULIR BPBS</code>, bagian <code>H.1</code>–<code>H.5</code> |
+
+Salah pilih menu tidak merusak data — PDF yang formatnya tidak cocok dilewati dan dicatat di log.
 
 Kolom **Folder Sumber** menunjukkan lokasi asal PDF ketika beberapa subfolder digabungkan.
 
@@ -231,6 +243,10 @@ ExpCore/
 - Parser dirancang untuk PDF yang dihasilkan oleh **Coretax DJP**.
 - PDF terproteksi, rusak, hasil scan tanpa lapisan teks, atau memiliki layout berbeda dapat gagal diproses.
 - Modul Pajak Masukan menghitung PPN menggunakan tarif tetap **12%**.
+- Pada modul Bukti Potong 2024, kolom **Sifat** dibaca dari tanda centang <code>X</code> pada
+  <code>H.4</code>/<code>H.5</code>. Bila tidak tepat satu kotak yang tercentang, kolom ini
+  berisi <code>-</code> daripada menebak. Kolom **NIK** kosong (<code>-</code>) bila field
+  <code>A.2</code> pada formulir memang tidak diisi.
 - File Excel dengan nama yang sama akan ditimpa pada proses berikutnya.
 - Gunakan **Pratinjau Nama** sebelum menerapkan perubahan nama PDF.
 
