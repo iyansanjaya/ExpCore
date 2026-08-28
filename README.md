@@ -12,7 +12,7 @@
 <p align="center">
   <img src="https://img.shields.io/badge/python-3.10+-3776AB?style=flat-square&logo=python&logoColor=white" alt="Python" />
   <img src="https://img.shields.io/badge/platform-Windows-0078D6?style=flat-square&logo=windows&logoColor=white" alt="Platform" />
-  <img src="https://img.shields.io/badge/version-1.2-7c3aed?style=flat-square" alt="Version" />
+  <img src="https://img.shields.io/badge/version-1.4-7c3aed?style=flat-square" alt="Version" />
   <img src="https://img.shields.io/badge/license-Apache%202.0-blue?style=flat-square" alt="License" />
 </p>
 
@@ -229,9 +229,12 @@ masalahnya ada di proses build, bukan di kode:
 ExpCore/
 ├── ExpCore.py          # UI dan logika aplikasi
 ├── ExpCore.iss         # Konfigurasi installer
-├── test_expcore.py     # Pemeriksaan parser penamaan Bupot
+├── test_expcore.py     # Pemeriksaan ketiga parser + keamanan nama file
+├── contoh_pdf.pdf      # Contoh Bupot BPPU (Coretax) untuk pengujian
+├── graphify-out/       # Graph pengetahuan proyek (graph.html, GRAPH_REPORT.md)
 ├── icon.ico
 ├── icon.png
+├── .gitignore
 ├── LICENSE.txt
 └── README.md
 ```
@@ -240,7 +243,8 @@ ExpCore/
 
 ## Catatan
 
-- Parser dirancang untuk PDF yang dihasilkan oleh **Coretax DJP**.
+- Parser dirancang untuk PDF resmi DJP: formulir **BPPU** dari Coretax (modul 2026)
+  dan formulir **BPBS** pra-Coretax (modul 2024). Keduanya punya parser terpisah.
 - PDF terproteksi, rusak, hasil scan tanpa lapisan teks, atau memiliki layout berbeda dapat gagal diproses.
 - Modul Pajak Masukan menghitung PPN menggunakan tarif tetap **12%**.
 - Pada modul Bukti Potong 2024, kolom **Sifat** dibaca dari tanda centang <code>X</code> pada
