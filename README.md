@@ -12,7 +12,7 @@
 <p align="center">
   <img src="https://img.shields.io/badge/python-3.10+-3776AB?style=flat-square&logo=python&logoColor=white" alt="Python" />
   <img src="https://img.shields.io/badge/platform-Windows-0078D6?style=flat-square&logo=windows&logoColor=white" alt="Platform" />
-  <img src="https://img.shields.io/badge/version-1.4-7c3aed?style=flat-square" alt="Version" />
+  <img src="https://img.shields.io/badge/version-1.5-7c3aed?style=flat-square" alt="Version" />
   <img src="https://img.shields.io/badge/license-Apache%202.0-blue?style=flat-square" alt="License" />
 </p>
 
