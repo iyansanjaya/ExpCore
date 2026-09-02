@@ -3,6 +3,7 @@ ExpCore.build
 ExpCOre/
 .venv/
 __pycache__/
+contoh-pdf
 
 # graphify - commit graph & laporan, ignore cache/path lokal mesin
 /graphify-out/*

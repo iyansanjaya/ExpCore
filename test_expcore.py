@@ -1,14 +1,119 @@
+import csv
 import os
+import sys
 import tempfile
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
+
+import pdfplumber
 
 from ExpCore import ExpCore
 
 
+def test_rename_recipient():
+    # Teks berdasarkan contoh BPPU: nama A.2 berbeda dari pemotong C.3.
+    text = """26007GORO 01-2026 FINAL NORMAL
+A.1 NPWP / NIK : 0026264515077000
+A.2 NAMA : PLAZA LIFESTYLE PRIMA
+A.3 NOMOR IDENTITAS TEMPAT KEGIATAN USAHA (NITKU) : 0026264515077000000000 - PLAZA LIFESTYLE PRIMA
+C.3 NAMA PEMOTONG DAN/ATAU PEMUNGUT : VOLANS
+PPh
+C.4 TANGGAL : 31 Januari 2026"""
+    data = ExpCore._extract_rename_bupot_data(text)
+    assert data["NAMA_PENERIMA"] == "PLAZA LIFESTYLE PRIMA", data
+    assert data["NAMA_PEMOTONG"] == "VOLANS", data
+
+    wrapped = text.replace("A.2 NAMA : PLAZA LIFESTYLE PRIMA",
+                           "A.2 NAMA :\nPLAZA LIFESTYLE\nPRIMA")
+    assert ExpCore._extract_rename_bupot_data(wrapped)["NAMA_PENERIMA"] == \
+        "PLAZA LIFESTYLE PRIMA"
+    blank = text.replace("A.2 NAMA : PLAZA LIFESTYLE PRIMA", "A.2 NAMA :")
+    absent = text.replace("A.2 NAMA : PLAZA LIFESTYLE PRIMA\n", "")
+    for incomplete in (blank, absent):
+        assert ExpCore._extract_rename_bupot_data(incomplete)["NAMA_PENERIMA"] == ""
+
+    expected_name = "PLAZA LIFESTYLE PRIMA - 26007GORO - 01-2026 - FINAL - NORMAL.pdf"
+    without_pemotong = text[:text.index("C.3")]
+    for pdf_text, complete in ((text, True), (wrapped, True),
+                               (without_pemotong, True), (blank, False), (absent, False)):
+        for apply_changes in (False, True):
+            with tempfile.TemporaryDirectory() as folder:
+                original = os.path.join(folder, "original.pdf")
+                with open(original, "wb") as pdf_file:
+                    pdf_file.write(b"test PDF placeholder")
+                app = SimpleNamespace(
+                    folder_path_rename=SimpleNamespace(get=lambda: folder),
+                    btn_preview_rename=Mock(), btn_apply_rename=Mock(),
+                    C=ExpCore.C, _pulse_start=Mock(), _pulse_stop=Mock(), log_rename=Mock(),
+                    _extract_rename_bupot_data=ExpCore._extract_rename_bupot_data,
+                    _safe_filename=ExpCore._safe_filename,
+                    _unique_filename=ExpCore._unique_filename,
+                )
+                pdf = SimpleNamespace(pages=[SimpleNamespace(extract_text=lambda: pdf_text)])
+                with patch("ExpCore.pdfplumber.open") as open_pdf, \
+                        patch("ExpCore.messagebox") as dialogs:
+                    open_pdf.return_value.__enter__.return_value = pdf
+                    dialogs.askyesno.return_value = True
+                    ExpCore.process_rename_bupot(app, apply_changes=apply_changes)
+                    dialogs.showerror.assert_not_called()
+
+                csv_name, = [name for name in os.listdir(folder) if name.endswith(".csv")]
+                with open(os.path.join(folder, csv_name), encoding="utf-8-sig", newline="") as log:
+                    row, = list(csv.DictReader(log))
+                assert row["NAMA_PEMOTONG"] == ("" if pdf_text == without_pemotong else "VOLANS")
+                if complete:
+                    assert row["nama_baru"] == expected_name, row
+                    assert row["NAMA_PENERIMA"] == "PLAZA LIFESTYLE PRIMA", row
+                    assert row["status"] == ("BERHASIL" if apply_changes else "SIAP"), row
+                    assert row["data_tidak_lengkap"] == "", row
+                else:
+                    assert row["status"] == ("DILEWATI" if apply_changes else "PERLU CEK"), row
+                    assert row["data_tidak_lengkap"] == "NAMA_PENERIMA", row
+                assert os.path.exists(original) == (not (complete and apply_changes))
+                assert os.path.exists(os.path.join(folder, expected_name)) == (complete and apply_changes)
+
+    print("Rename Bupot memakai A.2 (pratinjau dan penerapan): ok")
+
+
+def test_bupot2024_pdf_samples():
+    """Regresi opsional untuk kumpulan PDF feedback lokal (tidak mengubah file)."""
+    sample_root = Path(__file__).parent / "contoh-pdf"
+    previously_skipped = {
+        "JAN": {"2000000119.pdf", "2000000632.pdf", "2000000635.pdf"},
+        "FEB": {"2000000015 (2).pdf", "2000000022.pdf", "2000000024.pdf",
+                "2000000247.pdf", "2000000360.pdf", "2000000485.pdf"},
+    }
+    for month, expected_count in (("JAN", 75), ("FEB", 76)):
+        files = sorted((sample_root / month).glob("*.pdf"))
+        assert len(files) == expected_count, (month, len(files), expected_count)
+        recovered = set()
+        failures = []
+        row_count = 0
+        for path in files:
+            with pdfplumber.open(path) as pdf:
+                text = "\n".join(page.extract_text() or "" for page in pdf.pages)
+            rows = ExpCore._extract_bupot2024_rows(text)
+            row_count += len(rows)
+            if len(rows) != 1:
+                failures.append((path.name, len(rows)))
+            elif path.name in previously_skipped[month]:
+                assert rows[0]["Tarif (%)"] == 2.0, (path.name, rows[0])
+                recovered.add(path.name)
+        assert not failures, (month, failures)
+        assert recovered == previously_skipped[month], (month, recovered)
+        assert row_count == expected_count, (month, row_count)
+        print(f"PDF contoh {month}: {len(files)} PDF -> {row_count} baris, "
+              f"{len(recovered)} kasus feedback terbaca", flush=True)
+
+
 def main():
+    test_rename_recipient()
     text = """2505Z0UR6 10-2025 TIDAK FINAL PEMBETULAN KE-2
 C.3 NAMA PEMOTONG : PT CONTOH: ABADI
 C.4 TANGGAL : 7 Juli 2026"""
     assert ExpCore._extract_rename_bupot_data(text) == {
+        "NAMA_PENERIMA": "",
         "NAMA_PEMOTONG": "PT CONTOH: ABADI",
         "NOMOR_BUKTI": "2505Z0UR6",
         "MASA_PAJAK": "10-2025",
@@ -24,6 +129,7 @@ DIBATALKAN
 C.3 NAMA PEMOTONG : CV FALLBACK
 C.4 TANGGAL : 7 Juli 2026"""
     assert ExpCore._extract_rename_bupot_data(fallback) == {
+        "NAMA_PENERIMA": "",
         "NAMA_PEMOTONG": "CV FALLBACK",
         "NOMOR_BUKTI": "ABC12345",
         "MASA_PAJAK": "11-2025",
@@ -146,6 +252,21 @@ Sesuai dengan ketentuan yang berlaku di, Direktorat Jenderal pajak mengatur bahw
         "Nama Penandatangan": "ARIEF LUTHFI BACHTIAR",
     }
 
+    # Tarif BPBS bisa bulat, desimal titik, atau desimal koma; centang X opsional.
+    for tarif, expected_tarif in (("2", 2.0), ("2.00", 2.0), ("2,00", 2.0),
+                                  ("1.5", 1.5), ("1,5", 1.5), ("0", 0.0), ("10", 10.0)):
+        for checkbox in ("", "X "):
+            variant = bupot2024.replace("2.00 26.000,00", f"{checkbox}{tarif} 26.000,00")
+            expected_row = dict(rows2024[0])
+            expected_row["Tarif (%)"] = expected_tarif
+            expected_row["Tarif Lebih Tinggi"] = "Ya" if checkbox else "Tidak"
+            assert ExpCore._extract_bupot2024_rows(variant) == [expected_row], (tarif, checkbox)
+
+    # Tarif kosong/rusak tidak boleh membuat nominal PPh terbaca sebagai tarif.
+    for invalid_tarif in ("", "2.", "2,", "abc"):
+        variant = bupot2024.replace("2.00 26.000,00", f"{invalid_tarif} 26.000,00")
+        assert ExpCore._extract_bupot2024_rows(variant) == [], invalid_tarif
+
     # Formulir Coretax (BPPU) tidak boleh ikut terbaca oleh parser BPBS.
     assert ExpCore._extract_bupot2024_rows(bupot) == []
     # Tanggal dengan kotak kosong menghasilkan string kosong, bukan crash.
@@ -157,3 +278,5 @@ Sesuai dengan ketentuan yang berlaku di, Direktorat Jenderal pajak mengatur bahw
 
 if __name__ == "__main__":
     main()
+    if "--pdf-samples" in sys.argv:
+        test_bupot2024_pdf_samples()

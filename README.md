@@ -25,7 +25,7 @@
 | **Bukti Potong 2026**       | Mengekstrak nomor dokumen, masa pajak, NPWP/NIK, nama, status bukti, jenis PPh, objek pajak, DPP, tarif, PPh, dokumen dasar, dan data pemotong. |
 | **Bukti Potong 2024**       | Mengekstrak PDF formulir **BPBS** (pra-Coretax): nomor bukti, pembetulan, NPWP/NIK, masa pajak, objek pajak, DPP, tarif, PPh, dokumen referensi, dan data pemotong. |
 | **Pajak Masukan**           | Mengekstrak pembeli, nomor faktur, rincian barang, harga, kuantitas, DPP, PPN, dan nilai netto.                         |
-| **Penamaan Otomatis Bupot** | Mempratinjau dan mengganti nama PDF menjadi <code>Nama Pemotong - Nomor Bukti - Masa Pajak - Sifat - Status.pdf</code>. |
+| **Penamaan Otomatis Bupot** | Mempratinjau dan mengganti nama PDF menjadi <code>Nama Penerima (A.2) - Nomor Bukti - Masa Pajak - Sifat - Status.pdf</code>. |
 | **Pemindaian Subfolder**    | Memproses seluruh PDF dalam folder induk dan semua subfolder menjadi satu hasil.                                        |
 | **Output Terformat**        | Menghasilkan Excel dengan format angka, header, lebar kolom otomatis, dan informasi folder sumber.                      |
 
@@ -109,6 +109,14 @@ Kolom **Folder Sumber** menunjukkan lokasi asal PDF ketika beberapa subfolder di
 3. Klik **Pratinjau Nama** dan periksa log CSV.
 4. Klik **Terapkan Nama** setelah hasil pratinjau sesuai.
 
+Nama diambil dari **A.2 NAMA** (wajib pajak yang dipotong/dipungut atau penerima penghasilan) pada BPPU Coretax, bukan **C.3 Nama Pemotong**. Contoh hasil:
+
+```text
+PLAZA LIFESTYLE PRIMA - 26007GORO - 01-2026 - FINAL - NORMAL.pdf
+```
+
+Jika A.2 kosong atau tidak terbaca, PDF dilewati tanpa menggunakan nama pemotong sebagai pengganti. Log CSV mencatat `NAMA_PENERIMA` dan tetap menyimpan `NAMA_PEMOTONG` untuk audit. Kolom Nama Pemotong pada rekap Excel tidak berubah.
+
 PDF dengan data wajib yang tidak lengkap akan dilewati. Nama yang sudah digunakan tidak ditimpa; aplikasi menambahkan nomor seperti <code>(2)</code>. Setiap proses menghasilkan log audit:
 
 ```text
@@ -125,6 +133,14 @@ Pemeriksaan parser dan keamanan nama file:
 ```bash
 ./.venv/Scripts/python.exe test_expcore.py
 ```
+
+Untuk menguji ulang 151 PDF feedback lokal di `contoh-pdf/JAN` dan `contoh-pdf/FEB` tanpa mengubah PDF:
+
+```bash
+./.venv/Scripts/python.exe test_expcore.py --pdf-samples
+```
+
+Tes memeriksa JAN menghasilkan 75 baris dan FEB 76 baris, termasuk sembilan file yang sebelumnya terlewat karena tarif ditulis sebagai bilangan bulat.
 
 ---
 
@@ -251,6 +267,7 @@ ExpCore/
   <code>H.4</code>/<code>H.5</code>. Bila tidak tepat satu kotak yang tercentang, kolom ini
   berisi <code>-</code> daripada menebak. Kolom **NIK** kosong (<code>-</code>) bila field
   <code>A.2</code> pada formulir memang tidak diisi.
+- Tarif pada formulir BPBS dapat ditulis sebagai bilangan bulat (`2`) maupun desimal (`2.00` atau `2,00`); ketiganya dibaca sebagai tarif 2%.
 - File Excel dengan nama yang sama akan ditimpa pada proses berikutnya.
 - Gunakan **Pratinjau Nama** sebelum menerapkan perubahan nama PDF.
 

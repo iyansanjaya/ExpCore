@@ -306,7 +306,7 @@ class ExpCore(ctk.CTk):
 
         self._heading(
             p, "Penamaan Otomatis Bupot",
-            "Pratinjau lalu ganti nama PDF berdasarkan identitas Bukti Potong.",
+            "Pratinjau lalu ganti nama PDF memakai nama penerima penghasilan (A.2).",
             row=0,
         )
 
@@ -560,12 +560,23 @@ class ExpCore(ctk.CTk):
         text_flat = re.sub(r"\s+", " ", text)
         top_text = text[:2500]
         data = {
+            "NAMA_PENERIMA": "",
             "NAMA_PEMOTONG": "",
             "NOMOR_BUKTI": "",
             "MASA_PAJAK": "",
             "SIFAT": "",
             "STATUS": "",
         }
+
+        # A.2 adalah nama wajib pajak penerima penghasilan, bukan pemotong C.3.
+        # Batasi sampai A.3 agar NITKU/identitas lain tidak ikut menjadi nama.
+        recipient = re.search(
+            r"\bA\.?\s*2\s*NAMA\s*[:：]\s*(.*?)\s*\bA\.?\s*3\b",
+            text_flat,
+            re.IGNORECASE,
+        )
+        if recipient:
+            data["NAMA_PENERIMA"] = ExpCore._clean_filename_value(recipient.group(1))
 
         name_patterns = [
             r"C\.?\s*3\s*(?:NAMA\s*)?PEMOTONG.*?[:：]\s*(.*?)\s*C\.?\s*4\b",
@@ -657,8 +668,9 @@ class ExpCore(ctk.CTk):
         log_path = os.path.join(folder, f"Log_Penamaan_Bupot_{mode}_{timestamp}.csv")
         fields = [
             "status", "folder_sumber", "nama_lama", "nama_baru", "data_tidak_lengkap",
-            "NAMA_PEMOTONG", "NOMOR_BUKTI", "MASA_PAJAK", "SIFAT", "STATUS",
+            "NAMA_PENERIMA", "NAMA_PEMOTONG", "NOMOR_BUKTI", "MASA_PAJAK", "SIFAT", "STATUS",
         ]
+        required_fields = ("NAMA_PENERIMA", "NOMOR_BUKTI", "MASA_PAJAK", "SIFAT", "STATUS")
         complete = skipped = failed = unchanged = 0
         self.log_rename(f"{mode}: memeriksa {len(pdf_files)} PDF …")
 
@@ -686,9 +698,9 @@ class ExpCore(ctk.CTk):
                                     page_texts.append(page_text)
 
                         data = self._extract_rename_bupot_data("\n".join(page_texts))
-                        missing = [key for key, value in data.items() if not value]
+                        missing = [key for key in required_fields if not data[key]]
                         components = [
-                            self._safe_filename(data["NAMA_PEMOTONG"] or "UNKNOWN_NAMA", 80),
+                            self._safe_filename(data["NAMA_PENERIMA"] or "UNKNOWN_NAMA", 80),
                             self._safe_filename(data["NOMOR_BUKTI"] or "UNKNOWN_NOMOR", 30),
                             self._safe_filename(data["MASA_PAJAK"] or "UNKNOWN_MASA", 20),
                             self._safe_filename(data["SIFAT"] or "UNKNOWN_SIFAT", 20),
@@ -942,9 +954,10 @@ class ExpCore(ctk.CTk):
         sifat = "-" if final == tidak_final else ("FINAL" if final else "TIDAK FINAL")
 
         baris_data = []
+        # Tarif BPBS dapat berupa bilangan bulat (2) atau desimal (2.00 / 2,00).
         pola_baris = (
             r"(\d{1,2}-\d{4})\s+(\d{2}-\d{3}-\d{2})\s+([\d.]+,\d{2})\s+"
-            r"(?:(X)\s+)?(\d+[.,]\d+)\s+([\d.]+,\d{2})"
+            r"(?:(X)\s+)?(\d+(?:[.,]\d+)?)\s+([\d.]+,\d{2})"
         )
         for match in re.finditer(pola_baris, teks):
             masa, kode_objek, dpp, tarif_tinggi, tarif, pph = match.groups()
@@ -1007,7 +1020,9 @@ class ExpCore(ctk.CTk):
                     baris_pdf = self._extract_bupot2024_rows(teks_lengkap)
                     if not baris_pdf:
                         dilewati += 1
-                        self.log_bupot2024(f"DILEWATI: {relatif} — bukan formulir BPBS?")
+                        self.log_bupot2024(
+                            f"DILEWATI: {relatif} — tidak ada baris objek pajak BPBS yang berhasil dibaca."
+                        )
                         continue
 
                     for baris in baris_pdf:
