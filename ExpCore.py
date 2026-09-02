@@ -158,7 +158,7 @@ class ExpCore(ctk.CTk):
 
         # ── Version ──
         ctk.CTkLabel(
-            self.sidebar, text="v1.4",
+            self.sidebar, text="v1.5",
             font=ctk.CTkFont(size=10),
             text_color=self.C["text_muted"],
         ).grid(row=8, column=0, padx=24, pady=(0, 20), sticky="sw")
