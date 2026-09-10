@@ -4,14 +4,58 @@ import sys
 import tempfile
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import Mock, patch
+from unittest.mock import MagicMock, Mock, patch
 
 import pdfplumber
+from openpyxl import load_workbook
 
 from ExpCore import ExpCore
 
 
-def test_rename_recipient():
+def test_batch_exports():
+    """All three workers export valid PDFs despite a corrupt sibling PDF."""
+    for method, parser, logger in (
+        ("process_bupot", "_extract_bupot_rows", "log_bupot"),
+        ("process_bupot_2024", "_extract_bupot2024_rows", "log_bupot2024"),
+        ("process_pm", None, "log_pm"),
+    ):
+        with tempfile.TemporaryDirectory() as folder:
+            source = Path(folder)
+            (source / "sub").mkdir()
+            (source / "broken.pdf").write_bytes(b"corrupt")
+            (source / "sub" / "valid.pdf").write_bytes(b"fixture")
+            page = SimpleNamespace(
+                extract_text=lambda: "Pembeli Barang Kena Pajak\nNama : PT UJI\nNPWP : 0012345678901234\n"
+                                     "Kode dan Nomor Seri Faktur Pajak : 0100000000000001",
+                extract_tables=lambda: [[["1", "123456", "Jasa Uji Rp 1.000,00 x 2 Unit"]]],
+            )
+            worker = SimpleNamespace(_progress=Mock(), _write_excel=ExpCore._write_excel)
+            setattr(worker, logger, Mock())
+            if parser:
+                setattr(worker, parser, lambda text: [{"NPWP": "0012345678901234", "DPP (Rp)": 2000.0}])
+            good_pdf = MagicMock()
+            good_pdf.__enter__.return_value = SimpleNamespace(pages=[page])
+            with patch("ExpCore.pdfplumber.open", side_effect=[ValueError("corrupt PDF"), good_pdf]):
+                output, summary = getattr(ExpCore, method)(worker, folder)
+            assert "1 baris, 1 PDF dilewati" in summary, summary
+            book = load_workbook(output)
+            sheet = book.active
+            assert sheet.max_row == 2
+            values = dict(zip((c.value for c in sheet[1]), (c.value for c in sheet[2])))
+            assert values["Folder Sumber"] == "sub"
+            if method == "process_pm":
+                assert values["NPWP Pembeli"] == "0012345678901234"
+                assert values["DPP"] == 2000 and values["PPN"] == 240
+            else:
+                assert values["NPWP"] == "0012345678901234"
+            book.close()
+            assert (source / "broken.pdf").read_bytes() == b"corrupt"
+            assert (source / "sub" / "valid.pdf").read_bytes() == b"fixture"
+            assert worker._progress.call_count == 2
+    print("Batch workers: corrupted PDF recovery, subfolders and three Excel exports OK")
+
+
+def test_rename_pemotong():
     # Teks berdasarkan contoh BPPU: nama A.2 berbeda dari pemotong C.3.
     text = """26007GORO 01-2026 FINAL NORMAL
 A.1 NPWP / NIK : 0026264515077000
@@ -33,47 +77,47 @@ C.4 TANGGAL : 31 Januari 2026"""
     for incomplete in (blank, absent):
         assert ExpCore._extract_rename_bupot_data(incomplete)["NAMA_PENERIMA"] == ""
 
-    expected_name = "PLAZA LIFESTYLE PRIMA - 26007GORO - 01-2026 - FINAL - NORMAL.pdf"
+    expected_name = "VOLANS - 26007GORO - 01-2026 - FINAL - NORMAL.pdf"
     without_pemotong = text[:text.index("C.3")]
+    blank_pemotong = text.replace(": VOLANS", ":")
+    wrapped_pemotong = text.replace(": VOLANS", ":\nVOLANS")
     for pdf_text, complete in ((text, True), (wrapped, True),
-                               (without_pemotong, True), (blank, False), (absent, False)):
+                               (wrapped_pemotong, True), (without_pemotong, False),
+                               (blank_pemotong, False), (blank, True), (absent, True)):
         for apply_changes in (False, True):
             with tempfile.TemporaryDirectory() as folder:
                 original = os.path.join(folder, "original.pdf")
                 with open(original, "wb") as pdf_file:
                     pdf_file.write(b"test PDF placeholder")
                 app = SimpleNamespace(
-                    folder_path_rename=SimpleNamespace(get=lambda: folder),
-                    btn_preview_rename=Mock(), btn_apply_rename=Mock(),
-                    C=ExpCore.C, _pulse_start=Mock(), _pulse_stop=Mock(), log_rename=Mock(),
+                    _progress=Mock(), log_rename=Mock(),
                     _extract_rename_bupot_data=ExpCore._extract_rename_bupot_data,
                     _safe_filename=ExpCore._safe_filename,
                     _unique_filename=ExpCore._unique_filename,
                 )
                 pdf = SimpleNamespace(pages=[SimpleNamespace(extract_text=lambda: pdf_text)])
-                with patch("ExpCore.pdfplumber.open") as open_pdf, \
-                        patch("ExpCore.messagebox") as dialogs:
+                with patch("ExpCore.pdfplumber.open") as open_pdf:
                     open_pdf.return_value.__enter__.return_value = pdf
-                    dialogs.askyesno.return_value = True
-                    ExpCore.process_rename_bupot(app, apply_changes=apply_changes)
-                    dialogs.showerror.assert_not_called()
+                    result_path, summary = ExpCore.process_rename_bupot(app, folder, apply_changes=apply_changes)
+                    assert Path(result_path).is_file()
+                    assert "selesai" in summary
 
                 csv_name, = [name for name in os.listdir(folder) if name.endswith(".csv")]
                 with open(os.path.join(folder, csv_name), encoding="utf-8-sig", newline="") as log:
                     row, = list(csv.DictReader(log))
-                assert row["NAMA_PEMOTONG"] == ("" if pdf_text == without_pemotong else "VOLANS")
+                assert row["NAMA_PEMOTONG"] == ("VOLANS" if complete else "")
+                assert row["NAMA_PENERIMA"] == ("" if pdf_text in (blank, absent) else "PLAZA LIFESTYLE PRIMA"), row
                 if complete:
                     assert row["nama_baru"] == expected_name, row
-                    assert row["NAMA_PENERIMA"] == "PLAZA LIFESTYLE PRIMA", row
                     assert row["status"] == ("BERHASIL" if apply_changes else "SIAP"), row
                     assert row["data_tidak_lengkap"] == "", row
                 else:
                     assert row["status"] == ("DILEWATI" if apply_changes else "PERLU CEK"), row
-                    assert row["data_tidak_lengkap"] == "NAMA_PENERIMA", row
+                    assert row["data_tidak_lengkap"] == "NAMA_PEMOTONG", row
                 assert os.path.exists(original) == (not (complete and apply_changes))
                 assert os.path.exists(os.path.join(folder, expected_name)) == (complete and apply_changes)
 
-    print("Rename Bupot memakai A.2 (pratinjau dan penerapan): ok")
+    print("Rename Bupot memakai C.3 (pratinjau dan penerapan): ok")
 
 
 def test_bupot2024_pdf_samples():
@@ -108,7 +152,8 @@ def test_bupot2024_pdf_samples():
 
 
 def main():
-    test_rename_recipient()
+    test_batch_exports()
+    test_rename_pemotong()
     text = """2505Z0UR6 10-2025 TIDAK FINAL PEMBETULAN KE-2
 C.3 NAMA PEMOTONG : PT CONTOH: ABADI
 C.4 TANGGAL : 7 Juli 2026"""

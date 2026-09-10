@@ -3,7 +3,21 @@
 ; Non-commercial use only
 
 #define MyAppName "ExpCore"
-#define MyAppVersion "1.5"
+#define VersionHandle FileOpen(SourcePath + "\VERSION")
+#if !VersionHandle
+  #error VERSION tidak ditemukan.
+#endif
+#define MyAppVersion Trim(FileRead(VersionHandle))
+#expr FileClose(VersionHandle)
+#define BuiltVersionHandle FileOpen(SourcePath + "\ExpCore.dist\VERSION")
+#if !BuiltVersionHandle
+  #error Build aplikasi terlebih dahulu dengan build_release.py (VERSION belum dibundel).
+#endif
+#define BuiltVersion Trim(FileRead(BuiltVersionHandle))
+#expr FileClose(BuiltVersionHandle)
+#if BuiltVersion != MyAppVersion
+  #error Versi build berbeda dari VERSION. Jalankan ulang build_release.py.
+#endif
 #define MyAppPublisher "Iyan App"
 #define MyAppURL "https://www.iyansanjaya.com/"
 #define MyAppExeName "ExpCore.exe"
@@ -21,7 +35,7 @@ AppVersion={#MyAppVersion}
 AppPublisher={#MyAppPublisher}
 AppPublisherURL={#MyAppURL}
 AppSupportURL={#MyAppURL}
-AppUpdatesURL={#MyAppURL}
+AppUpdatesURL=https://github.com/iyansanjaya/ExpCore/releases
 DefaultDirName={autopf}\{#MyAppName}
 DisableDirPage=yes
 UninstallDisplayIcon={app}\{#MyAppExeName}
@@ -40,7 +54,7 @@ DisableProgramGroupPage=yes
 ; Uncomment the following line to run in non administrative install mode (install for current user only).
 ;PrivilegesRequired=lowest
 OutputDir=ExpCore
-OutputBaseFilename=ExpCore
+OutputBaseFilename=ExpCore-Setup-{#MyAppVersion}
 SetupIconFile={#SourcePath}\icon.ico
 SolidCompression=yes
 WizardStyle=modern dynamic

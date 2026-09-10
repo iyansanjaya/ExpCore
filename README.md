@@ -12,7 +12,7 @@
 <p align="center">
   <img src="https://img.shields.io/badge/python-3.10+-3776AB?style=flat-square&logo=python&logoColor=white" alt="Python" />
   <img src="https://img.shields.io/badge/platform-Windows-0078D6?style=flat-square&logo=windows&logoColor=white" alt="Platform" />
-  <img src="https://img.shields.io/badge/version-1.5-7c3aed?style=flat-square" alt="Version" />
+  <img src="https://img.shields.io/badge/version-1.6.0-7c3aed?style=flat-square" alt="Version" />
   <img src="https://img.shields.io/badge/license-Apache%202.0-blue?style=flat-square" alt="License" />
 </p>
 
@@ -25,7 +25,7 @@
 | **Bukti Potong 2026**       | Mengekstrak nomor dokumen, masa pajak, NPWP/NIK, nama, status bukti, jenis PPh, objek pajak, DPP, tarif, PPh, dokumen dasar, dan data pemotong. |
 | **Bukti Potong 2024**       | Mengekstrak PDF formulir **BPBS** (pra-Coretax): nomor bukti, pembetulan, NPWP/NIK, masa pajak, objek pajak, DPP, tarif, PPh, dokumen referensi, dan data pemotong. |
 | **Pajak Masukan**           | Mengekstrak pembeli, nomor faktur, rincian barang, harga, kuantitas, DPP, PPN, dan nilai netto.                         |
-| **Penamaan Otomatis Bupot** | Mempratinjau dan mengganti nama PDF menjadi <code>Nama Penerima (A.2) - Nomor Bukti - Masa Pajak - Sifat - Status.pdf</code>. |
+| **Penamaan Otomatis Bupot** | Mempratinjau dan mengganti nama PDF menjadi <code>Nama Pemotong (C.3) - Nomor Bukti - Masa Pajak - Sifat - Status.pdf</code>. |
 | **Pemindaian Subfolder**    | Memproses seluruh PDF dalam folder induk dan semua subfolder menjadi satu hasil.                                        |
 | **Output Terformat**        | Menghasilkan Excel dengan format angka, header, lebar kolom otomatis, dan informasi folder sumber.                      |
 
@@ -79,11 +79,29 @@ Verifikasi environment sudah benar. Perintah berikut harus mencetak <code>lengka
 
 ## Cara Penggunaan
 
+### Ruang kerja baru
+
+Beranda menyediakan empat alat dalam satu workspace terang dengan navigasi tetap.
+Setiap halaman memiliki pemilihan folder, progres, log aktivitas, dan akses langsung
+ke hasil. Folder bisa diketik atau dipilih menggunakan **Pilih folder** / `Ctrl+O`.
+
+Pemrosesan berjalan di latar sehingga navigasi tetap responsif. Tombol proses dan
+perubahan folder dikunci sementara untuk mencegah pekerjaan bertumpuk. Gunakan
+**Buka hasil** untuk membuka Excel/CSV setelah selesai, atau **Salin log** untuk
+menyalin aktivitas. Jendela pendek menyediakan area konten yang dapat digulir,
+sementara tombol aksi utama tetap terlihat di bawah.
+Roda mouse bekerja di atas kartu dan isian. Saat log kosong atau sudah mencapai
+ujung, scroll diteruskan ke halaman; gunakan juga scrollbar atau `Page Up` / `Page Down`.
+
+Gunakan `Alt+0` untuk beranda dan `Alt+1`–`Alt+4` untuk empat alat. Tombol dapat
+diakses menggunakan `Tab`, lalu diaktifkan dengan `Enter` atau `Space`.
+Lihat [DESIGN.md](DESIGN.md) untuk sistem visual dan aturan interaksi.
+
 ### Ekstraksi Bukti Potong atau Pajak Masukan
 
 1. Pilih menu **Bukti Potong 2026**, **Bukti Potong 2024**, atau **Pajak Masukan**.
 2. Pilih folder biasa atau folder induk.
-3. Klik **Mulai Ekstrak**.
+3. Klik **Mulai ekstraksi**. Jika rekap lama sudah ada, konfirmasikan penggantiannya.
 4. Aplikasi memproses seluruh PDF di folder tersebut dan semua subfolder.
 5. Satu file Excel disimpan di folder yang dipilih:
    - Bukti Potong 2026: <code>!Hasil_Rekap_Bupot.xlsx</code>
@@ -107,15 +125,17 @@ Kolom **Folder Sumber** menunjukkan lokasi asal PDF ketika beberapa subfolder di
 1. Pilih menu **Penamaan Bupot**.
 2. Pilih folder yang berisi PDF Bupot, termasuk jika PDF berada dalam subfolder.
 3. Klik **Pratinjau Nama** dan periksa log CSV.
-4. Klik **Terapkan Nama** setelah hasil pratinjau sesuai.
+4. Tombol **Terapkan nama** aktif setelah pratinjau selesai. Periksa CSV, lalu klik
+   tombol tersebut dan konfirmasikan perubahan. Penerapan memindai ulang folder,
+   sehingga perubahan file sejak pratinjau ikut diperiksa.
 
-Nama diambil dari **A.2 NAMA** (wajib pajak yang dipotong/dipungut atau penerima penghasilan) pada BPPU Coretax, bukan **C.3 Nama Pemotong**. Contoh hasil:
+Nama diambil dari **C.3 Nama Pemotong dan/atau Pemungut PPh** pada BPPU Coretax. Contoh hasil:
 
 ```text
-PLAZA LIFESTYLE PRIMA - 26007GORO - 01-2026 - FINAL - NORMAL.pdf
+KARUNIA INTI CEMERLANG - 2604BX1RN - 06-2026 - TIDAK FINAL - NORMAL.pdf
 ```
 
-Jika A.2 kosong atau tidak terbaca, PDF dilewati tanpa menggunakan nama pemotong sebagai pengganti. Log CSV mencatat `NAMA_PENERIMA` dan tetap menyimpan `NAMA_PEMOTONG` untuk audit. Kolom Nama Pemotong pada rekap Excel tidak berubah.
+Jika C.3 kosong atau tidak terbaca, PDF dilewati tanpa menggunakan nama penerima sebagai pengganti. Log CSV tetap mencatat `NAMA_PENERIMA` dan `NAMA_PEMOTONG` untuk audit.
 
 PDF dengan data wajib yang tidak lengkap akan dilewati. Nama yang sudah digunakan tidak ditimpa; aplikasi menambahkan nomor seperti <code>(2)</code>. Setiap proses menghasilkan log audit:
 
@@ -127,6 +147,25 @@ Log_Penamaan_Bupot_Penerapan_YYYYMMDD_HHMMSS.csv
 ---
 
 ## Pengujian
+
+Pemeriksaan update (offline, semua respons GitHub dimock):
+
+```bash
+./.venv/Scripts/python.exe -m unittest test_expcore_updates -v
+```
+
+Mencakup perbandingan versi, rilis stabil, kesiapan installer, URL resmi, cache,
+throttling, respons rusak/terlalu besar, timeout, TLS, HTTP 404/403/429/503,
+dan kegagalan penyimpanan cache. Tes UI juga memeriksa banner, tombol unduh,
+penutupan saat worker berjalan, serta pemulihan kontrol setelah kesalahan.
+
+Pemeriksaan antarmuka desktop (memerlukan Tcl/Tk; tidak mengubah PDF pengguna):
+
+```bash
+./.venv/Scripts/python.exe test_expcore_ui.py
+./.venv/Scripts/python.exe test_expcore_ui.py --scale 1.25
+./.venv/Scripts/python.exe test_expcore_ui.py --scale 1.5
+```
 
 Pemeriksaan parser dan keamanan nama file:
 
@@ -169,12 +208,19 @@ Tes memeriksa JAN menghasilkan 75 baris dan FEB 76 baris, termasuk sembilan file
 **Langkah 3** — build standalone:
 
 ```bash
-./.venv/Scripts/python.exe -m nuitka --mode=standalone --windows-console-mode=disable --enable-plugin=tk-inter --include-data-files=icon.ico=icon.ico --include-data-files=icon.png=icon.png --windows-icon-from-ico=icon.ico ExpCore.py
+./.venv/Scripts/python.exe build_release.py
 ```
 
 Hasil build berada di <code>ExpCore.dist/</code>. **Proses ini lama** — pandas dan numpy ikut
 dikompilasi, jadi siapkan waktu belasan menit. Jangan tutup terminal sebelum selesai; build yang
 terputus tidak meninggalkan <code>ExpCore.dist/</code> sama sekali.
+
+`VERSION` adalah sumber nomor versi aplikasi, metadata executable, dan installer.
+Gunakan format `MAJOR.MINOR.PATCH`, misalnya `1.6.0`. Skrip build membundel file ini
+secara otomatis; jangan mengubah salinan di `ExpCore.dist/` secara manual.
+Build pertama memerlukan internet untuk mengunduh alat pendukung Nuitka ke cache
+pengguna. Skrip menyetujui unduhan alat build ini agar kompilasi tidak berhenti pada
+prompt interaktif; build selanjutnya memakai cache yang tersedia.
 
 **Langkah 4** — verifikasi hasil build sebelum dibuat installer. Semua paket berikut harus muncul:
 
@@ -189,7 +235,42 @@ membersihkan <code>ExpCore.build/</code> tidak akan menolong, karena masalahnya 
 
 1. Buka <code>ExpCore.iss</code> dengan Inno Setup Compiler.
 2. Pilih **Build → Compile**.
-3. Installer dihasilkan sebagai <code>ExpCore/ExpCore.exe</code>.
+3. Installer dihasilkan sebagai <code>ExpCore/ExpCore-Setup-1.6.0.exe</code> (nama mengikuti `VERSION`).
+
+Compiler installer menolak build jika `ExpCore.dist/VERSION` belum tersedia atau
+berbeda dari `VERSION` sumber. Jalankan ulang `build_release.py` setelah mengubah versi.
+
+### Pemberitahuan pembaruan
+
+- Aplikasi memeriksa rilis stabil terbaru dari `iyansanjaya/ExpCore` melalui GitHub
+  setelah antarmuka terbuka. Pekerjaan PDF dan navigasi tetap berjalan.
+- Hasil disimpan selama 24 jam di `%LOCALAPPDATA%/ExpCore/update-check.json`.
+  Tombol **Periksa update** melewati cache setelah 60 detik. Kegagalan koneksi
+  menunda percobaan berikutnya 15 menit; batas GitHub mengikuti waktu tunggu server
+  (minimal 60 detik, maksimal 24 jam).
+- Jika ada versi lebih baru dengan installer siap, banner menyediakan **Unduh update**
+  dan **Nanti**. Unduh membuka halaman rilis resmi di browser. Pengguna mengunduh
+  dan menjalankan installer sendiri. Nanti menyembunyikan banner untuk sesi tersebut;
+  pemeriksaan manual dapat menampilkannya kembali.
+- Gangguan jaringan saat pengecekan otomatis tidak memunculkan dialog. Pengecekan
+  manual menjelaskan kegagalan; aplikasi tetap dapat dipakai saat offline.
+- Permintaan hanya membaca metadata rilis publik dengan HTTPS; PDF, isi dokumen,
+  nama file, dan folder pengguna tidak dikirim. Tidak ada token GitHub dalam aplikasi.
+- Rilis draft/prerelease, tag tidak valid, tautan di luar repositori resmi, dan
+  installer yang belum selesai diunggah tidak menghasilkan tawaran unduh.
+
+### Menerbitkan versi berikutnya
+
+1. Ubah `VERSION`, lalu jalankan tes parser, update, dan UI di atas.
+2. Jalankan `build_release.py`, buka hasil executable, lalu compile `ExpCore.iss`.
+3. Buat **draft release** GitHub dengan tag persis `v` + isi `VERSION`, misalnya `v1.6.0`.
+4. Unggah `ExpCore-Setup-1.6.0.exe` ke draft beserta catatan perubahan. Nama installer
+   mengikuti versi. Nama lama `ExpCore.exe` juga didukung untuk kompatibilitas.
+5. Setelah executable dan installer diperiksa, publikasikan sebagai rilis stabil
+   dan tandai **latest**. Push commit atau tag saja tidak memicu pemberitahuan.
+
+Pengguna versi 1.5 dan sebelumnya perlu memasang versi 1.6.0 sekali secara manual.
+Pemberitahuan otomatis tersedia mulai versi yang sudah memiliki pemeriksa update ini.
 
 ---
 
@@ -243,9 +324,16 @@ masalahnya ada di proses build, bukan di kode:
 
 ```text
 ExpCore/
-├── ExpCore.py          # UI dan logika aplikasi
+├── ExpCore.py          # Parser PDF dan ekspor data
+├── expcore_ui.py       # Workspace desktop dan pemrosesan latar
+├── expcore_updates.py  # Pemeriksaan rilis GitHub dan cache per pengguna
+├── VERSION            # Nomor versi tunggal aplikasi dan installer
+├── build_release.py   # Build Nuitka dengan versi dan data yang konsisten
+├── DESIGN.md           # Token visual dan aturan interaksi
 ├── ExpCore.iss         # Konfigurasi installer
 ├── test_expcore.py     # Pemeriksaan ketiga parser + keamanan nama file
+├── test_expcore_ui.py  # Pemeriksaan layout, worker dan interaksi desktop
+├── test_expcore_updates.py # Pengujian update tanpa jaringan
 ├── contoh_pdf.pdf      # Contoh Bupot BPPU (Coretax) untuk pengujian
 ├── graphify-out/       # Graph pengetahuan proyek (graph.html, GRAPH_REPORT.md)
 ├── icon.ico
@@ -268,7 +356,7 @@ ExpCore/
   berisi <code>-</code> daripada menebak. Kolom **NIK** kosong (<code>-</code>) bila field
   <code>A.2</code> pada formulir memang tidak diisi.
 - Tarif pada formulir BPBS dapat ditulis sebagai bilangan bulat (`2`) maupun desimal (`2.00` atau `2,00`); ketiganya dibaca sebagai tarif 2%.
-- File Excel dengan nama yang sama akan ditimpa pada proses berikutnya.
+- File Excel dengan nama yang sama diganti setelah pengguna mengonfirmasi.
 - Gunakan **Pratinjau Nama** sebelum menerapkan perubahan nama PDF.
 
 ---

@@ -1,490 +1,19 @@
 import os
-import sys
 import glob
 import re
 import csv
 import unicodedata
 import pdfplumber
 import pandas as pd
-import customtkinter as ctk
-from tkinter import filedialog, messagebox
 from openpyxl.styles import Font, PatternFill, Alignment
 from openpyxl.utils import get_column_letter
 from datetime import datetime
 
-# ==========================================
-# KONFIGURASI TEMA
-# ==========================================
-ctk.set_appearance_mode("dark")
-ctk.set_default_color_theme("blue")
+from expcore_ui import Workspace
 
 
-class ExpCore(ctk.CTk):
-    """Aplikasi desktop untuk mengekstrak data PDF Coretax ke Excel."""
-
-    # ── Palet Warna ──
-    # Terinspirasi oleh estetika Linear / Raycast — minimal, muted, satu aksen.
-    C = {
-        "bg":            "#0f1117",
-        "surface":       "#161820",
-        "surface_hover": "#1c1e28",
-        "border":        "#242630",
-        "border_focus":  "#3b3e50",
-
-        "accent":        "#818cf8",
-        "accent_hover":  "#727de6",
-        "accent_muted":  "#272a48",
-
-        "teal":          "#5eead4",
-        "teal_hover":    "#4cd9c3",
-        "teal_muted":    "#1a3a38",
-
-        "green":         "#4ade80",
-        "red":           "#f87171",
-        "amber":         "#fbbf24",
-
-        "text":          "#e2e4eb",
-        "text_sub":      "#9295a5",
-        "text_muted":    "#50536a",
-
-        "input_bg":      "#11131a",
-        "log_bg":        "#0c0e14",
-    }
-
-    def __init__(self):
-        super().__init__()
-
-        self.title("ExpCore")
-        self.geometry("940x620")
-        self.minsize(840, 540)
-        self.configure(fg_color=self.C["bg"])
-
-        # ── Icon ──
-        # Set AppUserModelID agar Windows menampilkan ikon ExpCore di taskbar,
-        # bukan ikon Python/Nuitka default.
-        try:
-            import ctypes
-            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("iyansanjaya.expcore.1.0")
-        except Exception:
-            pass
-
-        if "__compiled__" in dir():
-            base_dir = os.path.dirname(sys.executable)
-        else:
-            base_dir = os.path.dirname(os.path.abspath(__file__))
-
-        # iconbitmap (.ico) — untuk title bar & taskbar
-        ico_path = os.path.join(base_dir, "icon.ico")
-        if os.path.exists(ico_path):
-            self.after(200, lambda: self.iconbitmap(ico_path))
-
-        # iconphoto (.png) — resolusi lebih tinggi untuk alt-tab & taskbar
-        png_path = os.path.join(base_dir, "icon.png")
-        if os.path.exists(png_path):
-            from tkinter import PhotoImage
-            self._icon_img = PhotoImage(file=png_path)
-            self.iconphoto(True, self._icon_img)
-
-        # ── State ──
-        self.folder_path_bupot = ctk.StringVar(value="")
-        self.folder_path_pm = ctk.StringVar(value="")
-        self.folder_path_bupot2024 = ctk.StringVar(value="")
-        self.folder_path_rename = ctk.StringVar(value="")
-        self._anim_id = None
-
-        self._build()
-
-    # ══════════════════════════════════════════
-    #  LAYOUT
-    # ══════════════════════════════════════════
-    def _build(self):
-        self.grid_columnconfigure(1, weight=1)
-        self.grid_rowconfigure(0, weight=1)
-
-        self._build_sidebar()
-        self._build_content()
-        self._navigate("bupot")
-
-    # ──────────────────────────────────────────
-    #  Sidebar
-    # ──────────────────────────────────────────
-    def _build_sidebar(self):
-        self.sidebar = ctk.CTkFrame(
-            self, width=210, corner_radius=0,
-            fg_color=self.C["bg"],
-            border_width=0,
-        )
-        self.sidebar.grid(row=0, column=0, sticky="nsew")
-        self.sidebar.grid_propagate(False)
-        self.sidebar.grid_columnconfigure(0, weight=1)
-        self.sidebar.grid_rowconfigure(7, weight=1)
-
-        # ── Brand ──
-        ctk.CTkLabel(
-            self.sidebar, text="ExpCore",
-            font=ctk.CTkFont(size=18, weight="bold"),
-            text_color=self.C["text"],
-        ).grid(row=0, column=0, padx=24, pady=(30, 2), sticky="w")
-
-        ctk.CTkLabel(
-            self.sidebar, text="by Iyan Sanjaya",
-            font=ctk.CTkFont(size=11),
-            text_color=self.C["text_muted"],
-        ).grid(row=1, column=0, padx=24, pady=(0, 24), sticky="w")
-
-        # ── Navigation ──
-        self.nav = {}
-        self.nav["bupot"] = self._make_nav(
-            self.sidebar, "Bukti Potong 2026", 2,
-            lambda: self._navigate("bupot"),
-        )
-        self.nav["bupot2024"] = self._make_nav(
-            self.sidebar, "Bukti Potong 2024", 3,
-            lambda: self._navigate("bupot2024"),
-        )
-        self.nav["pm"] = self._make_nav(
-            self.sidebar, "Pajak Masukan", 4,
-            lambda: self._navigate("pm"),
-        )
-        self.nav["rename"] = self._make_nav(
-            self.sidebar, "Penamaan Bupot", 5,
-            lambda: self._navigate("rename"),
-        )
-
-        # ── Divider ──
-        ctk.CTkFrame(
-            self.sidebar, height=1, fg_color=self.C["border"],
-        ).grid(row=6, column=0, padx=20, pady=(20, 0), sticky="ew")
-
-        # ── Version ──
-        ctk.CTkLabel(
-            self.sidebar, text="v1.5",
-            font=ctk.CTkFont(size=10),
-            text_color=self.C["text_muted"],
-        ).grid(row=8, column=0, padx=24, pady=(0, 20), sticky="sw")
-
-    def _make_nav(self, parent, label, row, cmd):
-        """Membuat tombol navigasi sidebar — minimalis, tanpa ikon."""
-        btn = ctk.CTkButton(
-            parent, text=label, anchor="w",
-            height=38, corner_radius=8,
-            font=ctk.CTkFont(size=13),
-            fg_color="transparent",
-            text_color=self.C["text_sub"],
-            hover_color=self.C["surface_hover"],
-            command=cmd,
-        )
-        btn.grid(row=row, column=0, padx=14, pady=1, sticky="ew")
-        return btn
-
-    def _navigate(self, key):
-        """Switch halaman & update state sidebar."""
-        for name, btn in self.nav.items():
-            if name == key:
-                btn.configure(
-                    fg_color=self.C["accent_muted"],
-                    text_color=self.C["accent"],
-                    hover_color=self.C["accent_muted"],
-                )
-            else:
-                btn.configure(
-                    fg_color="transparent",
-                    text_color=self.C["text_sub"],
-                    hover_color=self.C["surface_hover"],
-                )
-        for name, page in self.pages.items():
-            if name == key:
-                page.grid(row=0, column=0, sticky="nsew", padx=(20, 28), pady=28)
-            else:
-                page.grid_forget()
-
-    # ──────────────────────────────────────────
-    #  Content wrapper
-    # ──────────────────────────────────────────
-    def _build_content(self):
-        # Garis vertikal tipis sebagai pembatas sidebar — content
-        divider = ctk.CTkFrame(self, width=1, fg_color=self.C["border"], corner_radius=0)
-        divider.grid(row=0, column=0, sticky="nse")
-
-        self.content = ctk.CTkFrame(self, fg_color=self.C["bg"], corner_radius=0)
-        self.content.grid(row=0, column=1, sticky="nsew")
-        self.content.grid_columnconfigure(0, weight=1)
-        self.content.grid_rowconfigure(0, weight=1)
-
-        self.pages = {}
-        self._page_bupot()
-        self._page_pm()
-        self._page_bupot_2024()
-        self._page_rename_bupot()
-
-    # ══════════════════════════════════════════
-    #  HALAMAN — BUKTI POTONG
-    # ══════════════════════════════════════════
-    def _page_bupot(self):
-        p = self._page_frame()
-        self.pages["bupot"] = p
-
-        # Header
-        self._heading(p, "Bukti Potong 2026", "Ekstrak data PDF Bukti Potong Coretax ke Excel.", row=0)
-
-        # Folder picker
-        pick = self._picker_frame(p, row=1)
-        self.entry_bupot = self._folder_entry(pick, self.folder_path_bupot)
-        self._browse_btn(pick, lambda: self.browse_folder(self.folder_path_bupot, self.log_bupot))
-
-        # Log
-        log_wrap = self._log_frame(p, row=2)
-        self.log_bupot_box = self._log_box(log_wrap)
-
-        # Action
-        self.btn_process_bupot = ctk.CTkButton(
-            p, text="Mulai Ekstrak", height=44, corner_radius=8,
-            fg_color=self.C["accent"], hover_color=self.C["accent_hover"],
-            text_color="#ffffff",
-            font=ctk.CTkFont(size=14, weight="bold"),
-            command=self.process_bupot,
-        )
-        self.btn_process_bupot.grid(row=3, column=0, sticky="ew", pady=(12, 0))
-
-    # ══════════════════════════════════════════
-    #  HALAMAN — PAJAK MASUKAN
-    # ══════════════════════════════════════════
-    def _page_pm(self):
-        p = self._page_frame()
-        self.pages["pm"] = p
-
-        self._heading(p, "Pajak Masukan", "Ekstrak data PDF Faktur Pajak Masukan Coretax ke Excel.", row=0)
-
-        pick = self._picker_frame(p, row=1)
-        self.entry_pm = self._folder_entry(pick, self.folder_path_pm)
-        self._browse_btn(pick, lambda: self.browse_folder(self.folder_path_pm, self.log_pm))
-
-        log_wrap = self._log_frame(p, row=2)
-        self.log_pm_box = self._log_box(log_wrap)
-
-        self.btn_process_pm = ctk.CTkButton(
-            p, text="Mulai Ekstrak", height=44, corner_radius=8,
-            fg_color=self.C["teal"], hover_color=self.C["teal_hover"],
-            text_color="#0f1117",
-            font=ctk.CTkFont(size=14, weight="bold"),
-            command=self.process_pm,
-        )
-        self.btn_process_pm.grid(row=3, column=0, sticky="ew", pady=(12, 0))
-
-    # ══════════════════════════════════════════
-    #  HALAMAN — BUKTI POTONG 2024 (formulir BPBS)
-    # ══════════════════════════════════════════
-    def _page_bupot_2024(self):
-        p = self._page_frame()
-        self.pages["bupot2024"] = p
-
-        self._heading(
-            p, "Bukti Potong 2024",
-            "Ekstrak data PDF Bukti Potong formulir BPBS (pra-Coretax) ke Excel.",
-            row=0,
-        )
-
-        pick = self._picker_frame(p, row=1)
-        self.entry_bupot2024 = self._folder_entry(pick, self.folder_path_bupot2024)
-        self._browse_btn(pick, lambda: self.browse_folder(self.folder_path_bupot2024, self.log_bupot2024))
-
-        log_wrap = self._log_frame(p, row=2)
-        self.log_bupot2024_box = self._log_box(log_wrap)
-
-        self.btn_process_bupot2024 = ctk.CTkButton(
-            p, text="Mulai Ekstrak", height=44, corner_radius=8,
-            fg_color=self.C["amber"], hover_color="#e0a91f",
-            text_color="#0f1117",
-            font=ctk.CTkFont(size=14, weight="bold"),
-            command=self.process_bupot_2024,
-        )
-        self.btn_process_bupot2024.grid(row=3, column=0, sticky="ew", pady=(12, 0))
-
-    def _page_rename_bupot(self):
-        p = self._page_frame()
-        self.pages["rename"] = p
-
-        self._heading(
-            p, "Penamaan Otomatis Bupot",
-            "Pratinjau lalu ganti nama PDF memakai nama penerima penghasilan (A.2).",
-            row=0,
-        )
-
-        pick = self._picker_frame(p, row=1)
-        self.entry_rename = self._folder_entry(pick, self.folder_path_rename)
-        self._browse_btn(pick, lambda: self.browse_folder(self.folder_path_rename, self.log_rename))
-
-        log_wrap = self._log_frame(p, row=2)
-        self.log_rename_box = self._log_box(log_wrap)
-
-        actions = ctk.CTkFrame(p, fg_color="transparent")
-        actions.grid(row=3, column=0, sticky="ew", pady=(12, 0))
-        actions.grid_columnconfigure(0, weight=1)
-        actions.grid_columnconfigure(1, weight=1)
-
-        self.btn_preview_rename = ctk.CTkButton(
-            actions, text="Pratinjau Nama", height=44, corner_radius=8,
-            fg_color=self.C["surface_hover"], hover_color=self.C["border_focus"],
-            border_width=1, border_color=self.C["border"],
-            text_color=self.C["text"], font=ctk.CTkFont(size=14, weight="bold"),
-            command=lambda: self.process_rename_bupot(apply_changes=False),
-        )
-        self.btn_preview_rename.grid(row=0, column=0, sticky="ew", padx=(0, 6))
-
-        self.btn_apply_rename = ctk.CTkButton(
-            actions, text="Terapkan Nama", height=44, corner_radius=8,
-            fg_color=self.C["accent"], hover_color=self.C["accent_hover"],
-            text_color="#ffffff", font=ctk.CTkFont(size=14, weight="bold"),
-            command=lambda: self.process_rename_bupot(apply_changes=True),
-        )
-        self.btn_apply_rename.grid(row=0, column=1, sticky="ew", padx=(6, 0))
-
-    # ══════════════════════════════════════════
-    #  KOMPONEN UI (reusable, bersih)
-    # ══════════════════════════════════════════
-    def _page_frame(self):
-        f = ctk.CTkFrame(self.content, fg_color="transparent")
-        f.grid_columnconfigure(0, weight=1)
-        f.grid_rowconfigure(2, weight=1)
-        return f
-
-    def _heading(self, parent, title, subtitle, row):
-        wrap = ctk.CTkFrame(parent, fg_color="transparent")
-        wrap.grid(row=row, column=0, sticky="ew", pady=(0, 20))
-        ctk.CTkLabel(
-            wrap, text=title,
-            font=ctk.CTkFont(size=24, weight="bold"),
-            text_color=self.C["text"],
-        ).pack(anchor="w")
-        ctk.CTkLabel(
-            wrap, text=subtitle,
-            font=ctk.CTkFont(size=13),
-            text_color=self.C["text_sub"],
-        ).pack(anchor="w", pady=(4, 0))
-
-    def _picker_frame(self, parent, row):
-        f = ctk.CTkFrame(
-            parent, fg_color=self.C["surface"],
-            corner_radius=10, border_width=1,
-            border_color=self.C["border"],
-        )
-        f.grid(row=row, column=0, sticky="ew", pady=(0, 10))
-        f.grid_columnconfigure(0, weight=1)
-
-        ctk.CTkLabel(
-            f, text="Folder Induk",
-            font=ctk.CTkFont(size=12, weight="bold"),
-            text_color=self.C["text_sub"],
-        ).grid(row=0, column=0, columnspan=2, padx=16, pady=(14, 6), sticky="w")
-
-        return f
-
-    def _folder_entry(self, parent, var):
-        e = ctk.CTkEntry(
-            parent, textvariable=var, state="readonly",
-            placeholder_text="Belum ada folder induk dipilih",
-            height=40, corner_radius=8,
-            fg_color=self.C["input_bg"],
-            border_color=self.C["border"],
-            border_width=1,
-            text_color=self.C["text"],
-            placeholder_text_color=self.C["text_muted"],
-            font=ctk.CTkFont(size=13),
-        )
-        e.grid(row=1, column=0, padx=(16, 8), pady=(0, 14), sticky="ew")
-        return e
-
-    def _browse_btn(self, parent, cmd):
-        ctk.CTkButton(
-            parent, text="Pilih", width=80, height=40,
-            corner_radius=8,
-            fg_color=self.C["surface_hover"],
-            hover_color=self.C["border_focus"],
-            border_width=1, border_color=self.C["border"],
-            text_color=self.C["text_sub"],
-            font=ctk.CTkFont(size=13),
-            command=cmd,
-        ).grid(row=1, column=1, padx=(0, 16), pady=(0, 14))
-
-    def _log_frame(self, parent, row):
-        f = ctk.CTkFrame(
-            parent, fg_color=self.C["surface"],
-            corner_radius=10, border_width=1,
-            border_color=self.C["border"],
-        )
-        f.grid(row=row, column=0, sticky="nsew")
-        f.grid_columnconfigure(0, weight=1)
-        f.grid_rowconfigure(1, weight=1)
-
-        ctk.CTkLabel(
-            f, text="Log",
-            font=ctk.CTkFont(size=12, weight="bold"),
-            text_color=self.C["text_sub"],
-        ).grid(row=0, column=0, padx=16, pady=(14, 6), sticky="w")
-
-        return f
-
-    def _log_box(self, parent):
-        tb = ctk.CTkTextbox(
-            parent, corner_radius=6,
-            fg_color=self.C["log_bg"],
-            text_color=self.C["text_muted"],
-            border_width=1, border_color=self.C["border"],
-            font=ctk.CTkFont(family="Consolas", size=12),
-            scrollbar_button_color=self.C["border"],
-            scrollbar_button_hover_color=self.C["border_focus"],
-        )
-        tb.grid(row=1, column=0, padx=12, pady=(0, 12), sticky="nsew")
-        tb.insert("0.0", f"{self._ts()}  Siap.\n")
-        tb.configure(state="disabled")
-        return tb
-
-    # ══════════════════════════════════════════
-    #  UTILITAS
-    # ══════════════════════════════════════════
-    def _ts(self):
-        return datetime.now().strftime("%H:%M:%S")
-
-    def browse_folder(self, var, log_fn):
-        path = filedialog.askdirectory()
-        if path:
-            var.set(path)
-            log_fn(f"Folder: {path}")
-
-    def log_bupot(self, msg):
-        self._log(self.log_bupot_box, msg)
-
-    def log_pm(self, msg):
-        self._log(self.log_pm_box, msg)
-
-    def log_bupot2024(self, msg):
-        self._log(self.log_bupot2024_box, msg)
-
-    def log_rename(self, msg):
-        self._log(self.log_rename_box, msg)
-
-    def _log(self, tb, msg):
-        tb.configure(state="normal")
-        tb.insert("end", f"{self._ts()}  {msg}\n")
-        tb.see("end")
-        tb.configure(state="disabled")
-        self.update_idletasks()
-
-    def _pulse_start(self, btn):
-        """Animasi loading minimalis pada tombol."""
-        self._anim_dots = 0
-
-        def tick():
-            self._anim_dots = (self._anim_dots % 3) + 1
-            btn.configure(text="Memproses" + " ." * self._anim_dots)
-            self._anim_id = self.after(420, tick)
-        tick()
-
-    def _pulse_stop(self, btn, label, color):
-        if self._anim_id:
-            self.after_cancel(self._anim_id)
-            self._anim_id = None
-        btn.configure(text=label, state="normal", fg_color=color)
+class ExpCore(Workspace):
+    """PDF processing; the inherited workspace owns the desktop interface."""
 
     @staticmethod
     def _write_excel(df, output_path, sheet_name, text_cols=(), money_cols=()):
@@ -638,30 +167,12 @@ class ExpCore(ctk.CTk):
             number += 1
         return f"{stem} ({number}){suffix}"
 
-    def process_rename_bupot(self, apply_changes=False):
-        folder = self.folder_path_rename.get()
+    def process_rename_bupot(self, folder, apply_changes=False):
         if not folder or not os.path.isdir(folder):
-            messagebox.showwarning("Peringatan", "Silakan pilih folder induk terlebih dahulu!")
-            return
-
+            raise ValueError("Folder tidak ditemukan. Pilih folder yang tersedia.")
         pdf_files = sorted(glob.glob(os.path.join(folder, "**", "*.pdf"), recursive=True))
         if not pdf_files:
-            messagebox.showerror("Error", "Tidak ada file PDF di folder atau subfolder tersebut!")
-            return
-
-        if apply_changes and not messagebox.askyesno(
-            "Konfirmasi",
-            f"Ganti nama {len(pdf_files)} PDF yang datanya lengkap?\n\n"
-            "PDF dengan data tidak lengkap akan dilewati.",
-        ):
-            return
-
-        button = self.btn_apply_rename if apply_changes else self.btn_preview_rename
-        label = "Terapkan Nama" if apply_changes else "Pratinjau Nama"
-        color = self.C["accent"] if apply_changes else self.C["surface_hover"]
-        self.btn_preview_rename.configure(state="disabled")
-        self.btn_apply_rename.configure(state="disabled")
-        self._pulse_start(button)
+            raise ValueError("Tidak ada PDF di folder atau subfolder ini. Pilih folder lain.")
 
         mode = "Penerapan" if apply_changes else "Pratinjau"
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -670,7 +181,7 @@ class ExpCore(ctk.CTk):
             "status", "folder_sumber", "nama_lama", "nama_baru", "data_tidak_lengkap",
             "NAMA_PENERIMA", "NAMA_PEMOTONG", "NOMOR_BUKTI", "MASA_PAJAK", "SIFAT", "STATUS",
         ]
-        required_fields = ("NAMA_PENERIMA", "NOMOR_BUKTI", "MASA_PAJAK", "SIFAT", "STATUS")
+        required_fields = ("NAMA_PEMOTONG", "NOMOR_BUKTI", "MASA_PAJAK", "SIFAT", "STATUS")
         complete = skipped = failed = unchanged = 0
         self.log_rename(f"{mode}: memeriksa {len(pdf_files)} PDF …")
 
@@ -679,7 +190,8 @@ class ExpCore(ctk.CTk):
                 writer = csv.DictWriter(log_file, fieldnames=fields)
                 writer.writeheader()
 
-                for file_pdf in pdf_files:
+                for index, file_pdf in enumerate(pdf_files):
+                    self._progress(index, len(pdf_files))
                     relative_file = os.path.relpath(file_pdf, folder)
                     folder_source = os.path.dirname(relative_file) or "."
                     row = {
@@ -700,7 +212,7 @@ class ExpCore(ctk.CTk):
                         data = self._extract_rename_bupot_data("\n".join(page_texts))
                         missing = [key for key in required_fields if not data[key]]
                         components = [
-                            self._safe_filename(data["NAMA_PENERIMA"] or "UNKNOWN_NAMA", 80),
+                            self._safe_filename(data["NAMA_PEMOTONG"] or "UNKNOWN_NAMA", 80),
                             self._safe_filename(data["NOMOR_BUKTI"] or "UNKNOWN_NOMOR", 30),
                             self._safe_filename(data["MASA_PAJAK"] or "UNKNOWN_MASA", 20),
                             self._safe_filename(data["SIFAT"] or "UNKNOWN_SIFAT", 20),
@@ -747,14 +259,10 @@ class ExpCore(ctk.CTk):
             )
             self.log_rename(summary)
             self.log_rename(f"Log: {log_path}")
-            messagebox.showinfo("Selesai", f"{summary}\n\nLog disimpan di:\n{log_path}")
+            return log_path, summary
         except Exception as error:
             self.log_rename(f"Error: {error}")
-            messagebox.showerror("Error", str(error))
-        finally:
-            self._pulse_stop(button, label, color)
-            self.btn_preview_rename.configure(state="normal")
-            self.btn_apply_rename.configure(state="normal")
+            raise
 
     # ══════════════════════════════════════════
     #  EKSTRAKSI — BUKTI POTONG
@@ -834,35 +342,38 @@ class ExpCore(ctk.CTk):
 
         return baris_data
 
-    def process_bupot(self):
-        folder = self.folder_path_bupot.get()
-        if not os.path.exists(folder) or not folder:
-            messagebox.showwarning("Peringatan", "Silakan pilih folder terlebih dahulu!")
-            return
-
+    def process_bupot(self, folder):
+        if not folder or not os.path.isdir(folder):
+            raise ValueError("Folder tidak ditemukan. Pilih folder yang tersedia.")
         pdf_files = sorted(glob.glob(os.path.join(folder, "**", "*.pdf"), recursive=True))
         if not pdf_files:
-            messagebox.showerror("Error", "Tidak ada file PDF di folder atau subfolder tersebut!")
-            return
+            raise ValueError("Tidak ada PDF di folder atau subfolder ini. Pilih folder lain.")
 
-        self.btn_process_bupot.configure(state="disabled")
-        self._pulse_start(self.btn_process_bupot)
         self.log_bupot(f"Memproses {len(pdf_files)} file …")
 
         semua_baris_data = []
+        dilewati = 0
         try:
-            for file_pdf in pdf_files:
+            for index, file_pdf in enumerate(pdf_files):
+                self._progress(index, len(pdf_files))
                 nama_file = os.path.basename(file_pdf)
                 folder_sumber = os.path.relpath(os.path.dirname(file_pdf), folder)
                 self.log_bupot(f"Membaca {os.path.relpath(file_pdf, folder)}")
 
-                with pdfplumber.open(file_pdf) as pdf:
-                    teks_lengkap = "\n".join([p.extract_text() for p in pdf.pages if p.extract_text()])
-
-                for baris in self._extract_bupot_rows(teks_lengkap):
-                    baris["Folder Sumber"] = folder_sumber
-                    baris["File Name"] = nama_file
-                    semua_baris_data.append(baris)
+                try:
+                    with pdfplumber.open(file_pdf) as pdf:
+                        teks_lengkap = "\n".join(p.extract_text() or "" for p in pdf.pages)
+                    rows = self._extract_bupot_rows(teks_lengkap)
+                    if not rows:
+                        dilewati += 1
+                        self.log_bupot(f"DILEWATI: {nama_file} — tidak ada baris BPPU yang dapat dibaca.")
+                    for baris in rows:
+                        baris["Folder Sumber"] = folder_sumber
+                        baris["File Name"] = nama_file
+                        semua_baris_data.append(baris)
+                except Exception as error:
+                    dilewati += 1
+                    self.log_bupot(f"GAGAL: {nama_file} — {error}")
 
             if semua_baris_data:
                 df = pd.DataFrame(semua_baris_data)
@@ -877,15 +388,14 @@ class ExpCore(ctk.CTk):
                 )
 
                 self.log_bupot(f"Selesai — {output_path}")
-                messagebox.showinfo("Selesai", f"Data Bupot berhasil disimpan di:\n{output_path}")
+                return output_path, f"Selesai — {len(semua_baris_data)} baris, {dilewati} PDF dilewati."
             else:
                 self.log_bupot("Tidak ada data yang ditemukan.")
+                return None, "Tidak ada data yang cocok. Periksa jenis formulir dan pastikan PDF memiliki lapisan teks."
 
         except Exception as e:
             self.log_bupot(f"Error: {str(e)}")
-            messagebox.showerror("Error", str(e))
-        finally:
-            self._pulse_stop(self.btn_process_bupot, "Mulai Ekstrak", self.C["accent"])
+            raise
 
     # ══════════════════════════════════════════
     #  EKSTRAKSI — BUKTI POTONG 2024 (formulir BPBS)
@@ -987,25 +497,20 @@ class ExpCore(ctk.CTk):
             })
         return baris_data
 
-    def process_bupot_2024(self):
-        folder = self.folder_path_bupot2024.get()
-        if not folder or not os.path.exists(folder):
-            messagebox.showwarning("Peringatan", "Silakan pilih folder terlebih dahulu!")
-            return
-
+    def process_bupot_2024(self, folder):
+        if not folder or not os.path.isdir(folder):
+            raise ValueError("Folder tidak ditemukan. Pilih folder yang tersedia.")
         pdf_files = sorted(glob.glob(os.path.join(folder, "**", "*.pdf"), recursive=True))
         if not pdf_files:
-            messagebox.showerror("Error", "Tidak ada file PDF di folder atau subfolder tersebut!")
-            return
+            raise ValueError("Tidak ada PDF di folder atau subfolder ini. Pilih folder lain.")
 
-        self.btn_process_bupot2024.configure(state="disabled")
-        self._pulse_start(self.btn_process_bupot2024)
         self.log_bupot2024(f"Memproses {len(pdf_files)} file …")
 
         semua_baris_data = []
         dilewati = 0
         try:
-            for file_pdf in pdf_files:
+            for index, file_pdf in enumerate(pdf_files):
+                self._progress(index, len(pdf_files))
                 nama_file = os.path.basename(file_pdf)
                 folder_sumber = os.path.relpath(os.path.dirname(file_pdf), folder)
                 relatif = os.path.relpath(file_pdf, folder)
@@ -1014,7 +519,7 @@ class ExpCore(ctk.CTk):
                 try:
                     with pdfplumber.open(file_pdf) as pdf:
                         teks_lengkap = "\n".join(
-                            p.extract_text() for p in pdf.pages if p.extract_text()
+                            p.extract_text() or "" for p in pdf.pages
                         )
 
                     baris_pdf = self._extract_bupot2024_rows(teks_lengkap)
@@ -1049,51 +554,41 @@ class ExpCore(ctk.CTk):
                     f"Selesai — {len(semua_baris_data)} baris, {dilewati} file dilewati."
                 )
                 self.log_bupot2024(f"Output: {output_path}")
-                messagebox.showinfo(
-                    "Selesai",
-                    f"Data Bupot 2024 berhasil disimpan di:\n{output_path}",
-                )
+                return output_path, f"Selesai — {len(semua_baris_data)} baris, {dilewati} PDF dilewati."
             else:
                 self.log_bupot2024("Tidak ada data yang ditemukan.")
-                messagebox.showwarning(
-                    "Tidak ada data",
-                    "Tidak ada PDF formulir BPBS yang bisa dibaca di folder tersebut.",
-                )
+                return None, "Tidak ada data yang cocok. Periksa jenis formulir dan pastikan PDF memiliki lapisan teks."
+
 
         except Exception as e:
             self.log_bupot2024(f"Error: {str(e)}")
-            messagebox.showerror("Error", str(e))
-        finally:
-            self._pulse_stop(self.btn_process_bupot2024, "Mulai Ekstrak", self.C["amber"])
+            raise
 
     # ══════════════════════════════════════════
     #  EKSTRAKSI — PAJAK MASUKAN
     # ══════════════════════════════════════════
-    def process_pm(self):
-        folder = self.folder_path_pm.get()
-        if not os.path.exists(folder) or not folder:
-            messagebox.showwarning("Peringatan", "Silakan pilih folder terlebih dahulu!")
-            return
-
+    def process_pm(self, folder):
+        if not folder or not os.path.isdir(folder):
+            raise ValueError("Folder tidak ditemukan. Pilih folder yang tersedia.")
         pdf_files = sorted(glob.glob(os.path.join(folder, "**", "*.pdf"), recursive=True))
         if not pdf_files:
-            messagebox.showerror("Error", "Tidak ada file PDF di folder atau subfolder tersebut!")
-            return
+            raise ValueError("Tidak ada PDF di folder atau subfolder ini. Pilih folder lain.")
 
-        self.btn_process_pm.configure(state="disabled")
-        self._pulse_start(self.btn_process_pm)
         self.log_pm(f"Memproses {len(pdf_files)} file …")
 
         semua_baris_data = []
+        dilewati = 0
         try:
-            for file_pdf in pdf_files:
+            for index, file_pdf in enumerate(pdf_files):
+                self._progress(index, len(pdf_files))
                 nama_file = os.path.basename(file_pdf)
                 folder_sumber = os.path.relpath(os.path.dirname(file_pdf), folder)
                 self.log_pm(f"Membaca {os.path.relpath(file_pdf, folder)}")
 
                 try:
+                    rows_before = len(semua_baris_data)
                     with pdfplumber.open(file_pdf) as pdf:
-                        teks_lengkap = "".join([page.extract_text() + "\n" for page in pdf.pages if page.extract_text()])
+                        teks_lengkap = "\n".join(page.extract_text() or "" for page in pdf.pages)
 
                         nama_pembeli_match = re.search(r'Pembeli Barang Kena Pajak.*?Nama\s*:\s*([^\n]+)', teks_lengkap, re.DOTALL | re.IGNORECASE)
                         nama_pembeli = nama_pembeli_match.group(1).strip() if nama_pembeli_match else "-"
@@ -1148,7 +643,11 @@ class ExpCore(ctk.CTk):
                                                 "Folder Sumber": folder_sumber, "Nama File PDF": nama_file
                                             })
                                             no_urut += 1
+                    if len(semua_baris_data) == rows_before:
+                        dilewati += 1
+                        self.log_pm(f"DILEWATI: {nama_file} — tidak ada rincian faktur yang dapat dibaca.")
                 except Exception as inner_e:
+                    dilewati += 1
                     self.log_pm(f"Gagal: {nama_file} — {str(inner_e)}")
 
             if semua_baris_data:
@@ -1177,15 +676,14 @@ class ExpCore(ctk.CTk):
                         ws.column_dimensions[column[0].column_letter].width = min(max_length + 2, 55)
 
                 self.log_pm(f"Selesai — {output_path}")
-                messagebox.showinfo("Selesai", f"Data Pajak Masukan berhasil disimpan di:\n{output_path}")
+                return output_path, f"Selesai — {len(semua_baris_data)} baris, {dilewati} PDF dilewati."
             else:
                 self.log_pm("Tidak ada data yang ditemukan.")
+                return None, "Tidak ada data yang cocok. Periksa jenis formulir dan pastikan PDF memiliki lapisan teks."
 
         except Exception as e:
             self.log_pm(f"Error: {str(e)}")
-            messagebox.showerror("Error", str(e))
-        finally:
-            self._pulse_stop(self.btn_process_pm, "Mulai Ekstrak", self.C["teal"])
+            raise
 
 
 if __name__ == "__main__":
