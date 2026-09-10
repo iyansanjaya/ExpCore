@@ -87,7 +87,9 @@ ke hasil. Folder bisa diketik atau dipilih menggunakan **Pilih folder** / `Ctrl+
 
 Pemrosesan berjalan di latar sehingga navigasi tetap responsif. Tombol proses dan
 perubahan folder dikunci sementara untuk mencegah pekerjaan bertumpuk. Gunakan
-**Buka hasil** untuk membuka Excel/CSV setelah selesai, atau **Salin log** untuk
+**Buka hasil** untuk membuka Excel hasil ekstraksi atau folder PDF pada Penamaan Bupot
+(setelah pratinjau maupun penerapan nama). Log CSV penamaan tetap disimpan di folder
+tersebut. Gunakan **Salin log** untuk
 menyalin aktivitas. Jendela pendek menyediakan area konten yang dapat digulir,
 sementara tombol aksi utama tetap terlihat di bawah.
 Roda mouse bekerja di atas kartu dan isian. Saat log kosong atau sudah mencapai

@@ -295,11 +295,26 @@ def main():
                 app._start_task("rename")
                 wait_for(app, lambda: app._busy is None)
             assert rename["apply"].cget("state") == "normal"
+            with patch("expcore_ui.os.startfile") as open_folder:
+                rename["open"].invoke()
+                open_folder.assert_called_once_with(folder)
             with patch("expcore_ui.messagebox.askyesno", return_value=False), patch.object(app, "_run_job") as run:
                 app._start_task("rename", True)
                 run.assert_not_called()
+            with patch("expcore_ui.messagebox.askyesno", return_value=True), patch.object(
+                app, "process_rename_bupot", return_value=(str(output), "Penamaan selesai")
+            ):
+                app._start_task("rename", True)
+                wait_for(app, lambda: app._busy is None)
+            with patch("expcore_ui.os.startfile") as open_folder:
+                rename["open"].invoke()
+                open_folder.assert_called_once_with(folder)
             app._folders["rename"].set("")
             assert rename["apply"].cget("state") == "disabled"
+            assert rename["open"].cget("state") == "disabled"
+            with patch("expcore_ui.os.startfile") as open_folder:
+                app._open_output("rename")
+                open_folder.assert_not_called()
             assert not callback_errors, callback_errors
         print(f"Desktop UI at {scale * 100:g}%: resize/reflow, keyboard, worker isolation, error recovery and rename safeguards OK")
         check_update_shutdown(app)

@@ -607,7 +607,7 @@ class Workspace(ctk.CTk):
             view["status"].configure(text="SELESAI" if path else "TIDAK ADA HASIL")
             view["summary"].configure(text=summary)
             if path:
-                self._outputs[key] = path
+                self._outputs[key] = folder if key == "rename" else path
                 view["open"].configure(state="normal")
                 if key == "rename" and not apply_changes:
                     self._preview_folder = folder
