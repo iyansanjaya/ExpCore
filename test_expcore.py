@@ -1,5 +1,7 @@
 import csv
+import json
 import os
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -10,14 +12,89 @@ import pdfplumber
 from openpyxl import load_workbook
 
 from ExpCore import ExpCore
+from tests.fixtures import BPPU_NAME, write_all
+
+ROOT = Path(__file__).resolve().parent
+
+
+def run_engine(*args):
+    result = subprocess.run([sys.executable, str(ROOT / "expcore_engine.py"), *args],
+                            capture_output=True, timeout=120)
+    # Protokol wajib ASCII murni; decode("ascii") gagal bila ada keluaran liar.
+    events = [json.loads(line) for line in result.stdout.decode("ascii").splitlines()]
+    return result.returncode, events, result.stderr.decode("utf-8", "replace")
+
+
+def sheet_row(path):
+    book = load_workbook(path)
+    try:
+        sheet = book.active
+        assert sheet.max_row == 2, sheet.max_row
+        return dict(zip((c.value for c in sheet[1]), (c.value for c in sheet[2])))
+    finally:
+        book.close()
+
+
+def test_engine_protocol():
+    """Engine JSON: tiga ekspor + penamaan pada PDF sintetis, folder Unicode, PDF rusak, argumen."""
+    with tempfile.TemporaryDirectory() as temp:
+        folder = Path(temp) / "Bupot Ünïcode — 2026 (uji)"
+        write_all(folder / "sub")
+        (folder / "rusak.pdf").write_bytes(b"corrupt")
+        exports = {
+            "bupot": ("!Hasil_Rekap_Bupot.xlsx", {"Nomor Dokumen": "25004WOBY", "DPP (Rp)": 3700000}),
+            "bupot2024": ("!Hasil_Rekap_Bupot_2024.xlsx", {"Nomor Bukti Potong": "2000000001", "Tarif (%)": 2}),
+            "pm": ("Hasil_Pajak_Masukan.xlsx", {"NPWP Pembeli": "0012345678901234", "DPP": 3000000, "PPN": 360000}),
+        }
+        for job, (output, expected) in exports.items():
+            code, events, stderr = run_engine(job, str(folder))
+            assert code == 0, (job, events, stderr)
+            assert events[0] == {"event": "log", "message": "Memproses 4 file …"}, events[0]
+            progress = [e for e in events if e["event"] == "progress"]
+            assert progress == [{"event": "progress", "done": i, "total": 4} for i in range(4)], progress
+            assert sum(e["event"] in ("done", "error") for e in events) == 1, events
+            assert events[-1]["event"] == "done" and events[-1]["path"] == str(folder / output), events[-1]
+            assert events[-1]["summary"] == "Selesai — 1 baris, 3 PDF dilewati.", events[-1]
+            values = sheet_row(events[-1]["path"])
+            assert values["Folder Sumber"] == "sub", values
+            for column, value in expected.items():
+                assert values[column] == value, (job, column, values[column])
+
+        code, events, _ = run_engine("rename", str(folder))
+        assert code == 0 and events[-1]["summary"] == (
+            "Pratinjau selesai — 1 siap/berhasil, 0 sudah sesuai, 2 perlu diperiksa, 1 gagal."), events[-1]
+        assert (folder / "sub" / "bppu.pdf").exists(), "Pratinjau tidak boleh mengubah nama file"
+        code, events, _ = run_engine("rename", str(folder), "--apply")
+        assert code == 0 and events[-1]["summary"].startswith("Penerapan selesai — 1 siap/berhasil"), events[-1]
+        assert (folder / "sub" / BPPU_NAME).exists() and not (folder / "sub" / "bppu.pdf").exists()
+        assert Path(events[-1]["path"]).name.startswith("Log_Penamaan_Bupot_Penerapan_")
+        code, events, _ = run_engine("rename", str(folder))
+        assert "0 siap/berhasil, 1 sudah sesuai" in events[-1]["summary"], events[-1]
+
+        # Kegagalan menulis hasil menjadi event error, bukan crash diam-diam.
+        (folder / "!Hasil_Rekap_Bupot.xlsx").unlink()
+        (folder / "!Hasil_Rekap_Bupot.xlsx").mkdir()
+        code, events, stderr = run_engine("bupot", str(folder))
+        assert code == 1 and events[-1]["event"] == "error" and "Traceback" in stderr, (events, stderr)
+        assert events[-2]["message"].startswith("Error: "), events[-2]
+
+        empty = Path(temp) / "kosong"
+        empty.mkdir()
+        for path, message in ((empty, "Tidak ada PDF di folder atau subfolder ini. Pilih folder lain."),
+                              (Path(temp) / "tidak-ada", "Folder tidak ditemukan. Pilih folder yang tersedia.")):
+            assert run_engine("pm", str(path))[:2] == (1, [{"event": "error", "message": message}])
+        for args in (("bupot", str(folder), "--apply"), ("lainnya", str(folder)), ("bupot",)):
+            code, events, stderr = run_engine(*args)
+            assert (code, events) == (2, []) and "usage" in stderr, (args, code, events)
+    print("Engine: protokol JSON, tiga ekspor, penamaan, Unicode, PDF rusak dan argumen OK")
 
 
 def test_batch_exports():
     """All three workers export valid PDFs despite a corrupt sibling PDF."""
-    for method, parser, logger in (
-        ("process_bupot", "_extract_bupot_rows", "log_bupot"),
-        ("process_bupot_2024", "_extract_bupot2024_rows", "log_bupot2024"),
-        ("process_pm", None, "log_pm"),
+    for method, parser in (
+        ("process_bupot", "_extract_bupot_rows"),
+        ("process_bupot_2024", "_extract_bupot2024_rows"),
+        ("process_pm", None),
     ):
         with tempfile.TemporaryDirectory() as folder:
             source = Path(folder)
@@ -29,8 +106,7 @@ def test_batch_exports():
                                      "Kode dan Nomor Seri Faktur Pajak : 0100000000000001",
                 extract_tables=lambda: [[["1", "123456", "Jasa Uji Rp 1.000,00 x 2 Unit"]]],
             )
-            worker = SimpleNamespace(_progress=Mock(), _write_excel=ExpCore._write_excel)
-            setattr(worker, logger, Mock())
+            worker = SimpleNamespace(progress=Mock(), log=Mock(), _write_excel=ExpCore._write_excel)
             if parser:
                 setattr(worker, parser, lambda text: [{"NPWP": "0012345678901234", "DPP (Rp)": 2000.0}])
             good_pdf = MagicMock()
@@ -51,7 +127,7 @@ def test_batch_exports():
             book.close()
             assert (source / "broken.pdf").read_bytes() == b"corrupt"
             assert (source / "sub" / "valid.pdf").read_bytes() == b"fixture"
-            assert worker._progress.call_count == 2
+            assert worker.progress.call_count == 2
     print("Batch workers: corrupted PDF recovery, subfolders and three Excel exports OK")
 
 
@@ -90,7 +166,7 @@ C.4 TANGGAL : 31 Januari 2026"""
                 with open(original, "wb") as pdf_file:
                     pdf_file.write(b"test PDF placeholder")
                 app = SimpleNamespace(
-                    _progress=Mock(), log_rename=Mock(),
+                    progress=Mock(), log=Mock(),
                     _extract_rename_bupot_data=ExpCore._extract_rename_bupot_data,
                     _safe_filename=ExpCore._safe_filename,
                     _unique_filename=ExpCore._unique_filename,
@@ -154,6 +230,7 @@ def test_bupot2024_pdf_samples():
 def main():
     test_batch_exports()
     test_rename_pemotong()
+    test_engine_protocol()
     text = """2505Z0UR6 10-2025 TIDAK FINAL PEMBETULAN KE-2
 C.3 NAMA PEMOTONG : PT CONTOH: ABADI
 C.4 TANGGAL : 7 Juli 2026"""

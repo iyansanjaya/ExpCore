@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'">
+  <title>ExpCore — Toolkit PDF Coretax</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <aside class="sidebar">
+    <div class="brand"><span class="brand-mark" aria-hidden="true">e</span>ExpCore</div>
+    <nav aria-label="Navigasi utama">
+      <p class="nav-label">RUANG KERJA</p>
+      <button type="button" class="nav-item" data-page="home" aria-keyshortcuts="Alt+0">Beranda</button>
+      <p class="nav-label">TOOLKIT DOKUMEN</p>
+      <div id="nav-tools"></div>
+    </nav>
+    <div class="note">
+      <strong>Tetap di perangkat Anda.</strong>
+      <span>PDF diproses secara lokal.<br>Tanpa unggah, tanpa akun.</span>
+    </div>
+    <p class="byline" id="byline"></p>
+  </aside>
+
+  <main class="content">
+    <header class="topbar">
+      <p class="breadcrumb" id="breadcrumb">Ruang kerja&nbsp;&nbsp;/&nbsp;&nbsp;Beranda</p>
+      <button type="button" class="btn" id="check-update">Periksa update</button>
+      <span class="badge">●&nbsp;&nbsp;LOKAL &amp; PRIVAT</span>
+    </header>
+
+    <section class="update-banner" id="update-banner" role="status" hidden>
+      <p id="update-text"></p>
+      <button type="button" class="btn primary" id="update-action"></button>
+      <button type="button" class="btn" id="update-later">Nanti</button>
+    </section>
+
+    <section class="page" id="page-home" aria-labelledby="home-title">
+      <div class="scroll">
+        <div class="hero">
+          <div class="hero-copy">
+            <span class="badge orange">SEDIKIT KLIK. LEBIH RAPI.</span>
+            <h1 id="home-title" tabindex="-1">Dokumen pajak.<br>Beres, lebih cepat.</h1>
+            <p class="lead">Ekstrak, rekap, dan rapikan PDF Anda.<br>Satu ruang kerja untuk pekerjaan yang lebih ringan.</p>
+          </div>
+          <div class="card dark guide">
+            <h2>Alur sederhana.</h2>
+            <ol>
+              <li><span>01</span>Pilih alat</li>
+              <li><span>02</span>Pilih folder PDF</li>
+              <li><span>03</span>Proses &amp; buka hasil</li>
+            </ol>
+            <p class="guide-footer">PDF&nbsp;&nbsp;→&nbsp;&nbsp;pekerjaan selesai</p>
+          </div>
+        </div>
+        <div class="section-heading">
+          <h2>Mulai dari sini</h2>
+          <p>4 alat. Satu alur yang rapi.</p>
+        </div>
+        <div class="tool-cards" id="tool-cards"></div>
+        <p class="footnote">Dibuat untuk dokumen Anda. Dirancang untuk waktu Anda.</p>
+      </div>
+    </section>
+  </main>
+
+  <template id="tool-card">
+    <article class="card tool-card">
+      <div class="tool-card-head"><span class="badge" data-field="tag"></span><span class="number" data-field="number"></span></div>
+      <h3 data-field="title"></h3>
+      <p data-field="detail"></p>
+      <button type="button" class="btn open-tool">Buka alat&nbsp;&nbsp;↗</button>
+    </article>
+  </template>
+
+  <template id="tool-page">
+    <section class="page tool">
+      <div class="scroll">
+        <header class="tool-header">
+          <span class="badge" data-field="tag"></span>
+          <h1 tabindex="-1" data-field="title"></h1>
+          <p class="lead" data-field="description"></p>
+        </header>
+        <div class="card picker">
+          <div class="card-head">
+            <h2>01&nbsp;&nbsp; Pilih sumber dokumen</h2>
+            <span class="badge">TERMASUK SUBFOLDER</span>
+          </div>
+          <p class="folder-label" data-field="folder-label">Belum ada folder dipilih</p>
+          <div class="folder-row">
+            <input class="folder" type="text" spellcheck="false" autocomplete="off" aria-label="Folder sumber PDF">
+            <button type="button" class="btn browse" aria-keyshortcuts="Control+O">Pilih folder</button>
+          </div>
+          <p class="hint" data-field="hint"></p>
+        </div>
+        <div class="card activity">
+          <div class="card-head">
+            <h2>02&nbsp;&nbsp; Aktivitas &amp; hasil</h2>
+            <span class="badge status" data-field="status">MENUNGGU FOLDER</span>
+          </div>
+          <div class="progress" role="progressbar" aria-label="Progres pemrosesan" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div class="bar"></div></div>
+          <p class="summary" data-field="summary" aria-live="polite">Pilih folder untuk memulai. Aktivitas akan tampil di sini.</p>
+          <div class="log" role="log" tabindex="0" aria-label="Log aktivitas">Belum ada aktivitas.
+PDF asli tetap tersimpan di folder sumber.</div>
+          <div class="tools-row">
+            <button type="button" class="btn copy">Salin log</button>
+            <button type="button" class="btn open" disabled>Buka hasil&nbsp;&nbsp;↗</button>
+          </div>
+        </div>
+      </div>
+      <footer class="tool-footer">
+        <p class="output-hint" data-field="output"></p>
+        <button type="button" class="btn primary run" disabled></button>
+        <button type="button" class="btn apply" disabled hidden>Terapkan nama</button>
+      </footer>
+    </section>
+  </template>
+</body>
+</html>

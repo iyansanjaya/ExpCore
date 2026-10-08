@@ -1,0 +1,74 @@
+{
+  "name": "expcore",
+  "productName": "ExpCore",
+  "version": "3.0.0",
+  "description": "Toolkit PDF Coretax",
+  "author": "Iyan App",
+  "license": "Apache-2.0",
+  "private": true,
+  "main": "app/main.js",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test --test-concurrency=1 --test-timeout=180000 tests/*.test.js",
+    "dist": "electron-builder --win --x64 --publish never"
+  },
+  "dependencies": {
+    "electron-updater": "6.8.9"
+  },
+  "devDependencies": {
+    "electron": "44.4.5",
+    "electron-builder": "26.15.3",
+    "playwright-core": "1.63.0"
+  },
+  "build": {
+    "appId": "iyansanjaya.expcore.1.0",
+    "productName": "ExpCore",
+    "copyright": "Copyright © 2026 Iyan Sanjaya",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "app/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "expcore_engine.dist",
+        "to": "engine"
+      }
+    ],
+    "electronLanguages": [
+      "en-US",
+      "id"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "icon.ico",
+      "executableName": "ExpCore"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": true,
+      "allowToChangeInstallationDirectory": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "ExpCore",
+      "artifactName": "ExpCore-Setup-${version}.${ext}",
+      "deleteAppDataOnUninstall": false
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "iyansanjaya",
+        "repo": "ExpCore"
+      }
+    ]
+  }
+}

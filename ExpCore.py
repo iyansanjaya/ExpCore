@@ -9,11 +9,13 @@ from openpyxl.styles import Font, PatternFill, Alignment
 from openpyxl.utils import get_column_letter
 from datetime import datetime
 
-from expcore_ui import Workspace
 
+class ExpCore:
+    """Parser PDF Coretax. Aktivitas dan progres dilaporkan lewat callback."""
 
-class ExpCore(Workspace):
-    """PDF processing; the inherited workspace owns the desktop interface."""
+    def __init__(self, log=None, progress=None):
+        self.log = log or (lambda message: None)
+        self.progress = progress or (lambda done, total: None)
 
     @staticmethod
     def _write_excel(df, output_path, sheet_name, text_cols=(), money_cols=()):
@@ -183,7 +185,7 @@ class ExpCore(Workspace):
         ]
         required_fields = ("NAMA_PEMOTONG", "NOMOR_BUKTI", "MASA_PAJAK", "SIFAT", "STATUS")
         complete = skipped = failed = unchanged = 0
-        self.log_rename(f"{mode}: memeriksa {len(pdf_files)} PDF …")
+        self.log(f"{mode}: memeriksa {len(pdf_files)} PDF …")
 
         try:
             with open(log_path, "w", newline="", encoding="utf-8-sig") as log_file:
@@ -191,7 +193,7 @@ class ExpCore(Workspace):
                 writer.writeheader()
 
                 for index, file_pdf in enumerate(pdf_files):
-                    self._progress(index, len(pdf_files))
+                    self.progress(index, len(pdf_files))
                     relative_file = os.path.relpath(file_pdf, folder)
                     folder_source = os.path.dirname(relative_file) or "."
                     row = {
@@ -245,10 +247,10 @@ class ExpCore(Workspace):
                             "data_tidak_lengkap": ", ".join(missing),
                             **data,
                         })
-                        self.log_rename(f"{status}: {relative_file} → {new_name}")
+                        self.log(f"{status}: {relative_file} → {new_name}")
                     except Exception as error:
                         failed += 1
-                        self.log_rename(f"ERROR: {relative_file} — {error}")
+                        self.log(f"ERROR: {relative_file} — {error}")
 
                     writer.writerow(row)
                     log_file.flush()
@@ -257,11 +259,11 @@ class ExpCore(Workspace):
                 f"{mode} selesai — {complete} siap/berhasil, {unchanged} sudah sesuai, "
                 f"{skipped} perlu diperiksa, {failed} gagal."
             )
-            self.log_rename(summary)
-            self.log_rename(f"Log: {log_path}")
+            self.log(summary)
+            self.log(f"Log: {log_path}")
             return log_path, summary
         except Exception as error:
-            self.log_rename(f"Error: {error}")
+            self.log(f"Error: {error}")
             raise
 
     # ══════════════════════════════════════════
@@ -349,16 +351,16 @@ class ExpCore(Workspace):
         if not pdf_files:
             raise ValueError("Tidak ada PDF di folder atau subfolder ini. Pilih folder lain.")
 
-        self.log_bupot(f"Memproses {len(pdf_files)} file …")
+        self.log(f"Memproses {len(pdf_files)} file …")
 
         semua_baris_data = []
         dilewati = 0
         try:
             for index, file_pdf in enumerate(pdf_files):
-                self._progress(index, len(pdf_files))
+                self.progress(index, len(pdf_files))
                 nama_file = os.path.basename(file_pdf)
                 folder_sumber = os.path.relpath(os.path.dirname(file_pdf), folder)
-                self.log_bupot(f"Membaca {os.path.relpath(file_pdf, folder)}")
+                self.log(f"Membaca {os.path.relpath(file_pdf, folder)}")
 
                 try:
                     with pdfplumber.open(file_pdf) as pdf:
@@ -366,14 +368,14 @@ class ExpCore(Workspace):
                     rows = self._extract_bupot_rows(teks_lengkap)
                     if not rows:
                         dilewati += 1
-                        self.log_bupot(f"DILEWATI: {nama_file} — tidak ada baris BPPU yang dapat dibaca.")
+                        self.log(f"DILEWATI: {nama_file} — tidak ada baris BPPU yang dapat dibaca.")
                     for baris in rows:
                         baris["Folder Sumber"] = folder_sumber
                         baris["File Name"] = nama_file
                         semua_baris_data.append(baris)
                 except Exception as error:
                     dilewati += 1
-                    self.log_bupot(f"GAGAL: {nama_file} — {error}")
+                    self.log(f"GAGAL: {nama_file} — {error}")
 
             if semua_baris_data:
                 df = pd.DataFrame(semua_baris_data)
@@ -387,14 +389,14 @@ class ExpCore(Workspace):
                     money_cols=["DPP (Rp)", "Pajak Penghasilan (Rp)"],
                 )
 
-                self.log_bupot(f"Selesai — {output_path}")
+                self.log(f"Selesai — {output_path}")
                 return output_path, f"Selesai — {len(semua_baris_data)} baris, {dilewati} PDF dilewati."
             else:
-                self.log_bupot("Tidak ada data yang ditemukan.")
+                self.log("Tidak ada data yang ditemukan.")
                 return None, "Tidak ada data yang cocok. Periksa jenis formulir dan pastikan PDF memiliki lapisan teks."
 
         except Exception as e:
-            self.log_bupot(f"Error: {str(e)}")
+            self.log(f"Error: {str(e)}")
             raise
 
     # ══════════════════════════════════════════
@@ -504,17 +506,17 @@ class ExpCore(Workspace):
         if not pdf_files:
             raise ValueError("Tidak ada PDF di folder atau subfolder ini. Pilih folder lain.")
 
-        self.log_bupot2024(f"Memproses {len(pdf_files)} file …")
+        self.log(f"Memproses {len(pdf_files)} file …")
 
         semua_baris_data = []
         dilewati = 0
         try:
             for index, file_pdf in enumerate(pdf_files):
-                self._progress(index, len(pdf_files))
+                self.progress(index, len(pdf_files))
                 nama_file = os.path.basename(file_pdf)
                 folder_sumber = os.path.relpath(os.path.dirname(file_pdf), folder)
                 relatif = os.path.relpath(file_pdf, folder)
-                self.log_bupot2024(f"Membaca {relatif}")
+                self.log(f"Membaca {relatif}")
 
                 try:
                     with pdfplumber.open(file_pdf) as pdf:
@@ -525,7 +527,7 @@ class ExpCore(Workspace):
                     baris_pdf = self._extract_bupot2024_rows(teks_lengkap)
                     if not baris_pdf:
                         dilewati += 1
-                        self.log_bupot2024(
+                        self.log(
                             f"DILEWATI: {relatif} — tidak ada baris objek pajak BPBS yang berhasil dibaca."
                         )
                         continue
@@ -536,7 +538,7 @@ class ExpCore(Workspace):
                         semua_baris_data.append(baris)
                 except Exception as error:
                     dilewati += 1
-                    self.log_bupot2024(f"GAGAL: {relatif} — {error}")
+                    self.log(f"GAGAL: {relatif} — {error}")
 
             if semua_baris_data:
                 df = pd.DataFrame(semua_baris_data)
@@ -550,18 +552,18 @@ class ExpCore(Workspace):
                     ],
                     money_cols=["DPP (Rp)", "Pajak Penghasilan (Rp)"],
                 )
-                self.log_bupot2024(
+                self.log(
                     f"Selesai — {len(semua_baris_data)} baris, {dilewati} file dilewati."
                 )
-                self.log_bupot2024(f"Output: {output_path}")
+                self.log(f"Output: {output_path}")
                 return output_path, f"Selesai — {len(semua_baris_data)} baris, {dilewati} PDF dilewati."
             else:
-                self.log_bupot2024("Tidak ada data yang ditemukan.")
+                self.log("Tidak ada data yang ditemukan.")
                 return None, "Tidak ada data yang cocok. Periksa jenis formulir dan pastikan PDF memiliki lapisan teks."
 
 
         except Exception as e:
-            self.log_bupot2024(f"Error: {str(e)}")
+            self.log(f"Error: {str(e)}")
             raise
 
     # ══════════════════════════════════════════
@@ -574,16 +576,16 @@ class ExpCore(Workspace):
         if not pdf_files:
             raise ValueError("Tidak ada PDF di folder atau subfolder ini. Pilih folder lain.")
 
-        self.log_pm(f"Memproses {len(pdf_files)} file …")
+        self.log(f"Memproses {len(pdf_files)} file …")
 
         semua_baris_data = []
         dilewati = 0
         try:
             for index, file_pdf in enumerate(pdf_files):
-                self._progress(index, len(pdf_files))
+                self.progress(index, len(pdf_files))
                 nama_file = os.path.basename(file_pdf)
                 folder_sumber = os.path.relpath(os.path.dirname(file_pdf), folder)
-                self.log_pm(f"Membaca {os.path.relpath(file_pdf, folder)}")
+                self.log(f"Membaca {os.path.relpath(file_pdf, folder)}")
 
                 try:
                     rows_before = len(semua_baris_data)
@@ -645,10 +647,10 @@ class ExpCore(Workspace):
                                             no_urut += 1
                     if len(semua_baris_data) == rows_before:
                         dilewati += 1
-                        self.log_pm(f"DILEWATI: {nama_file} — tidak ada rincian faktur yang dapat dibaca.")
+                        self.log(f"DILEWATI: {nama_file} — tidak ada rincian faktur yang dapat dibaca.")
                 except Exception as inner_e:
                     dilewati += 1
-                    self.log_pm(f"Gagal: {nama_file} — {str(inner_e)}")
+                    self.log(f"Gagal: {nama_file} — {str(inner_e)}")
 
             if semua_baris_data:
                 kolom_urutan = ['Nama Pembeli', 'NPWP Pembeli', 'Kode dan Nomor Seri Faktur Pajak', 'No', 'Kode Barang', 'Nama Barang', 'Harga', 'Qty', 'Satuan', 'Potongan Harga', 'DPP', 'PPN', 'NETTO', 'Folder Sumber', 'Nama File PDF']
@@ -675,17 +677,13 @@ class ExpCore(Workspace):
                         max_length = max((len(str(cell.value)) for cell in column if cell.value), default=0)
                         ws.column_dimensions[column[0].column_letter].width = min(max_length + 2, 55)
 
-                self.log_pm(f"Selesai — {output_path}")
+                self.log(f"Selesai — {output_path}")
                 return output_path, f"Selesai — {len(semua_baris_data)} baris, {dilewati} PDF dilewati."
             else:
-                self.log_pm("Tidak ada data yang ditemukan.")
+                self.log("Tidak ada data yang ditemukan.")
                 return None, "Tidak ada data yang cocok. Periksa jenis formulir dan pastikan PDF memiliki lapisan teks."
 
         except Exception as e:
-            self.log_pm(f"Error: {str(e)}")
+            self.log(f"Error: {str(e)}")
             raise
 
-
-if __name__ == "__main__":
-    app = ExpCore()
-    app.mainloop()

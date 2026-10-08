@@ -1,6 +1,8 @@
-ExpCore.dist
-ExpCore.build
-ExpCOre/
+# Dependency & hasil build
+node_modules/
+dist/
+expcore_engine.build/
+expcore_engine.dist/
 .venv/
 __pycache__/
 contoh-pdf
