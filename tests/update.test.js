@@ -78,9 +78,13 @@ async function eventually(check, timeout = 20000) {
   }
 }
 
+// Polling berbasis interval, bukan requestAnimationFrame: rAF berhenti total bila jendela tes
+// diminimalkan oleh aktivitas desktop, sehingga penantian berbasis rAF tidak pernah selesai.
+const waitFor = (fn, arg, options = {}) => page.waitForFunction(fn, arg, { polling: 100, ...options });
+
 const dialogs = () => app.evaluate(() => globalThis.calls.dialogs);
 const bannerText = () => page.textContent('#update-text');
-const waitBanner = (prefix) => page.waitForFunction((p) => !document.querySelector('#update-banner').hidden
+const waitBanner = (prefix) => waitFor((p) => !document.querySelector('#update-banner').hidden
   && document.querySelector('#update-text').textContent.startsWith(p), prefix, { timeout: 30000 });
 
 async function manualCheck() {
@@ -135,7 +139,7 @@ describe('Pembaruan aplikasi terpasang', { skip: !SOURCE && 'EXPCORE_APP belum d
     server.mode = 'down';
     dialog = await manualCheck();
     assert.match(dialog.detail, /^Tidak dapat terhubung\. Periksa koneksi internet Anda\.\nAplikasi tetap dapat digunakan\.$/);
-    assert.equal(await page.textContent('#check-update'), 'Periksa update');
+    assert.equal((await page.textContent('#check-update')).trim(), 'Periksa update');
     assert.equal(await page.isEnabled('#check-update'), true);
   });
 
@@ -182,12 +186,12 @@ describe('Pembaruan aplikasi terpasang', { skip: !SOURCE && 'EXPCORE_APP belum d
     await page.keyboard.press('Alt+3');
     await page.fill('#page-pm .folder', folder);
     await page.click('#page-pm .run');
-    await page.waitForFunction(() => document.querySelector('#page-pm [data-field="status"]').textContent === 'MEMPROSES');
+    await waitFor(() => document.querySelector('#page-pm [data-field="status"]').textContent === 'MEMPROSES');
     await page.click('#update-action');
     const [dialog] = await eventually(async () => (await dialogs()).length && dialogs());
     assert.equal(dialog.title, 'Proses masih berjalan');
     assert.deepEqual(await app.evaluate(() => globalThis.installs), []);
-    await page.waitForFunction(() => document.querySelector('#page-pm [data-field="status"]').textContent === 'SELESAI', null, { timeout: 120000 });
+    await waitFor(() => document.querySelector('#page-pm [data-field="status"]').textContent === 'SELESAI', null, { timeout: 120000 });
     await page.click('#update-action');
     assert.deepEqual(await eventually(async () => (await app.evaluate(() => globalThis.installs)).length
       && app.evaluate(() => globalThis.installs)), [[true, true]]);

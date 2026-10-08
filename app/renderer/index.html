@@ -3,116 +3,288 @@
 <head>
   <meta charset="utf-8">
   <meta http-equiv="Content-Security-Policy"
-        content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'">
+        content="default-src 'none'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'">
   <title>ExpCore — Toolkit PDF Coretax</title>
-  <link rel="stylesheet" href="styles.css">
-  <script src="app.js" defer></script>
+  <link rel="stylesheet" href="dist/app.css">
+  <link rel="stylesheet" href="dist/styles.css">
+  <script src="dist/app.js" defer></script>
 </head>
-<body>
-  <aside class="sidebar">
-    <div class="brand"><span class="brand-mark" aria-hidden="true">e</span>ExpCore</div>
-    <nav aria-label="Navigasi utama">
-      <p class="nav-label">RUANG KERJA</p>
-      <button type="button" class="nav-item" data-page="home" aria-keyshortcuts="Alt+0">Beranda</button>
-      <p class="nav-label">TOOLKIT DOKUMEN</p>
-      <div id="nav-tools"></div>
-    </nav>
-    <div class="note">
-      <strong>Tetap di perangkat Anda.</strong>
-      <span>PDF diproses secara lokal.<br>Tanpa unggah, tanpa akun.</span>
+<body class="grid h-full grid-rows-[auto_auto_minmax(0,1fr)] overflow-hidden bg-canvas font-sans text-ink antialiased">
+  <header class="app-header relative z-20 flex h-16 items-center gap-4 border-b border-line bg-white/90 px-6 backdrop-blur">
+    <div class="brand flex shrink-0 items-center gap-2.5">
+      <span class="grid size-9 place-items-center rounded-xl bg-gradient-to-br from-brand-500 to-brand-700 text-white shadow-brand">
+        <span data-icon="DocumentText" data-weight="Filled" class="size-5"></span>
+      </span>
+      <span class="text-[17px] font-semibold tracking-tight">ExpCore</span>
     </div>
-    <p class="byline" id="byline"></p>
-  </aside>
+    <nav id="main-nav" aria-label="Navigasi utama"
+         class="relative mx-auto flex items-center gap-0.5 rounded-full border border-line bg-white p-1 shadow-soft">
+      <span id="nav-indicator" aria-hidden="true" class="absolute left-0 top-1 h-[calc(100%-0.5rem)] w-0 rounded-full bg-brand-600 shadow-brand"></span>
+      <button type="button" class="nav-item" data-page="home" aria-keyshortcuts="Alt+0">Beranda</button>
+    </nav>
+    <div class="header-actions flex shrink-0 items-center gap-2">
+      <button type="button" id="check-update" class="btn-ghost h-9 px-3" aria-label="Periksa update">
+        <span data-icon="Refresh" class="size-4"></span>
+        <span class="label max-[1119px]:hidden">Periksa update</span>
+      </button>
+      <span class="privacy-badge inline-flex h-9 items-center gap-1.5 rounded-full bg-lavender px-3 text-xs font-semibold text-brand-700" title="PDF diproses di perangkat ini, tanpa unggah">
+        <span data-icon="ShieldCheck" data-weight="Filled" class="size-4"></span>
+        <span class="label max-[1119px]:hidden">Lokal &amp; privat</span>
+      </span>
+    </div>
+  </header>
 
-  <main class="content">
-    <header class="topbar">
-      <p class="breadcrumb" id="breadcrumb">Ruang kerja&nbsp;&nbsp;/&nbsp;&nbsp;Beranda</p>
-      <button type="button" class="btn" id="check-update">Periksa update</button>
-      <span class="badge">●&nbsp;&nbsp;LOKAL &amp; PRIVAT</span>
-    </header>
+  <section id="update-banner" role="status" hidden
+           class="relative z-10 mx-6 mt-3 flex items-center gap-4 rounded-2xl border border-brand-100 bg-white px-4 py-3 shadow-card">
+    <span class="grid size-10 shrink-0 place-items-center rounded-xl bg-lavender text-brand-600">
+      <span data-icon="Download" class="size-5"></span>
+    </span>
+    <p id="update-text" class="min-w-0 flex-1 whitespace-pre-line text-[13px] font-medium leading-snug text-ink"></p>
+    <button type="button" class="btn-secondary h-9" id="update-later">Nanti</button>
+    <button type="button" class="btn-primary h-9" id="update-action"></button>
+  </section>
 
-    <section class="update-banner" id="update-banner" role="status" hidden>
-      <p id="update-text"></p>
-      <button type="button" class="btn primary" id="update-action"></button>
-      <button type="button" class="btn" id="update-later">Nanti</button>
-    </section>
+  <main class="content relative min-h-0">
+    <section class="page h-full" id="page-home" aria-labelledby="home-title">
+      <div class="scroll h-full overflow-y-auto overscroll-contain">
+        <div class="relative overflow-hidden">
+          <div aria-hidden="true" class="hero-glow pointer-events-none absolute inset-x-0 top-0 h-[560px]"></div>
 
-    <section class="page" id="page-home" aria-labelledby="home-title">
-      <div class="scroll">
-        <div class="hero">
-          <div class="hero-copy">
-            <span class="badge orange">SEDIKIT KLIK. LEBIH RAPI.</span>
-            <h1 id="home-title" tabindex="-1">Dokumen pajak.<br>Beres, lebih cepat.</h1>
-            <p class="lead">Ekstrak, rekap, dan rapikan PDF Anda.<br>Satu ruang kerja untuk pekerjaan yang lebih ringan.</p>
-          </div>
-          <div class="card dark guide">
-            <h2>Alur sederhana.</h2>
-            <ol>
-              <li><span>01</span>Pilih alat</li>
-              <li><span>02</span>Pilih folder PDF</li>
-              <li><span>03</span>Proses &amp; buka hasil</li>
-            </ol>
-            <p class="guide-footer">PDF&nbsp;&nbsp;→&nbsp;&nbsp;pekerjaan selesai</p>
-          </div>
+          <section class="hero relative mx-auto max-w-5xl px-8 pt-14 text-center">
+            <span data-reveal class="inline-flex items-center gap-1.5 rounded-full border border-line bg-white px-3 py-1 text-xs font-medium text-ink-soft shadow-soft">
+              <span data-icon="Sparkles" data-weight="Filled" class="size-3.5 text-brand-600"></span>
+              Toolkit PDF Coretax
+            </span>
+            <h1 id="home-title" tabindex="-1" data-reveal
+                class="mx-auto mt-5 max-w-3xl text-[40px] font-medium leading-[1.08] tracking-[-0.035em] text-ink min-[1100px]:text-[50px]">
+              Dokumen pajak rapi,<br>selesai lebih cepat.
+            </h1>
+            <p data-reveal class="lead mx-auto mt-4 max-w-xl text-[15px] leading-relaxed text-ink-soft">
+              Ekstrak bukti potong dan faktur pajak ke Excel, lalu beri nama PDF secara otomatis.
+              Semua diproses di perangkat Anda.
+            </p>
+            <div data-reveal class="mt-7 flex items-center justify-center gap-3">
+              <button type="button" class="btn-primary h-11 px-5" data-page="bupot">
+                Mulai ekstraksi <span data-icon="ArrowRight" class="size-4"></span>
+              </button>
+              <button type="button" class="btn-dark h-11 px-5" data-page="rename">Penamaan Bupot</button>
+            </div>
+
+            <div data-reveal aria-hidden="true" class="hero-visual relative mx-auto mt-12 h-[290px] max-w-4xl">
+              <div class="absolute inset-x-0 bottom-0 grid h-44 grid-cols-3 gap-4">
+                <div class="flex items-end justify-center rounded-t-[32px] bg-gradient-to-b from-brand-100/10 to-brand-200/80 pb-3 text-[40px] font-semibold tracking-tight text-white/80">PDF</div>
+                <div class="flex items-end justify-center rounded-t-[32px] bg-gradient-to-b from-brand-200/20 to-brand-300/90 pb-3 text-[40px] font-semibold tracking-tight text-white/85">XLSX</div>
+                <div class="flex items-end justify-center rounded-t-[32px] bg-gradient-to-b from-brand-100/10 to-brand-200/80 pb-3 text-[40px] font-semibold tracking-tight text-white/80">CSV</div>
+              </div>
+              <div data-float class="absolute left-[3%] top-16 w-[250px] -rotate-6 rounded-2xl border border-white bg-white/95 p-3 text-left shadow-float">
+                <div class="flex items-center gap-2.5 rounded-xl bg-rose-50 px-3 py-2.5">
+                  <span data-icon="FilePdf" data-weight="Filled" class="size-5 text-rose-500"></span>
+                  <span class="text-[12.5px] font-medium">bupot-januari.pdf</span>
+                </div>
+                <div class="mt-2 flex items-center gap-2.5 rounded-xl px-3 py-2.5">
+                  <span data-icon="FilePdf" data-weight="Filled" class="size-5 text-rose-400"></span>
+                  <span class="text-[12.5px] font-medium text-ink-soft">bupot-februari.pdf</span>
+                </div>
+              </div>
+              <div data-float class="absolute left-1/2 top-0 w-[300px] -translate-x-1/2 rounded-2xl border border-white bg-white p-3.5 text-left shadow-float">
+                <div class="flex items-center gap-2.5 rounded-xl bg-emerald-50 px-3 py-2.5">
+                  <span data-icon="Grid" data-weight="Filled" class="size-5 text-emerald-600"></span>
+                  <span class="text-[12.5px] font-semibold">!Hasil_Rekap_Bupot.xlsx</span>
+                </div>
+                <div class="mt-3 space-y-2 px-1">
+                  <div class="flex gap-2"><span class="h-2 w-1/4 rounded-full bg-brand-100"></span><span class="h-2 w-2/5 rounded-full bg-line"></span><span class="h-2 w-1/4 rounded-full bg-line"></span></div>
+                  <div class="flex gap-2"><span class="h-2 w-1/4 rounded-full bg-brand-100"></span><span class="h-2 w-1/3 rounded-full bg-line"></span><span class="h-2 w-1/5 rounded-full bg-line"></span></div>
+                  <div class="flex gap-2"><span class="h-2 w-1/4 rounded-full bg-brand-100"></span><span class="h-2 w-2/5 rounded-full bg-line"></span><span class="h-2 w-1/4 rounded-full bg-line"></span></div>
+                </div>
+                <div class="mt-3 flex items-center gap-2 px-1 text-[11px] font-medium text-emerald-700">
+                  <span data-icon="TickCircle" data-weight="Filled" class="size-4"></span> Rekap siap dibuka
+                </div>
+              </div>
+              <div data-float class="absolute right-[3%] top-12 w-[250px] rotate-6 rounded-2xl border border-white bg-white/95 p-3 text-left shadow-float">
+                <div class="flex items-center gap-2.5 rounded-xl bg-lavender px-3 py-2.5">
+                  <span data-icon="Edit2" data-weight="Filled" class="size-5 text-brand-600"></span>
+                  <span class="text-[12.5px] font-medium">Log_Penamaan_Bupot.csv</span>
+                </div>
+                <div class="mt-2 px-3 py-1.5 text-[11.5px] leading-relaxed text-ink-soft">
+                  2000000015.pdf<br><span class="font-medium text-ink">→ Pemotong - Nomor - Masa.pdf</span>
+                </div>
+              </div>
+            </div>
+
+            <ul data-reveal class="relative mt-6 flex flex-wrap items-center justify-center gap-2.5 pb-4">
+              <li class="chip"><span class="chip-icon"><span data-icon="Lock" data-weight="Filled" class="size-3.5"></span></span>Diproses lokal</li>
+              <li class="chip"><span class="chip-icon"><span data-icon="Layers" data-weight="Filled" class="size-3.5"></span></span>Termasuk subfolder</li>
+              <li class="chip"><span class="chip-icon"><span data-icon="Grid" data-weight="Filled" class="size-3.5"></span></span>Excel siap pakai</li>
+              <li class="chip"><span class="chip-icon"><span data-icon="ClipboardText" data-weight="Filled" class="size-3.5"></span></span>Log audit CSV</li>
+            </ul>
+          </section>
         </div>
-        <div class="section-heading">
-          <h2>Mulai dari sini</h2>
-          <p>4 alat. Satu alur yang rapi.</p>
-        </div>
-        <div class="tool-cards" id="tool-cards"></div>
-        <p class="footnote">Dibuat untuk dokumen Anda. Dirancang untuk waktu Anda.</p>
+
+        <section class="tools-section mx-auto max-w-[1040px] px-8 pt-16" aria-labelledby="tools-title">
+          <div data-reveal class="flex items-end justify-between gap-8">
+            <h2 id="tools-title" class="text-[30px] font-medium leading-tight tracking-[-0.03em]">Empat alat untuk<br>pekerjaan pajak rutin</h2>
+            <p class="max-w-xs text-right text-[13px] leading-relaxed text-ink-muted">Pilih alat sesuai formulir. PDF yang tidak cocok dilewati dan dicatat, dokumen lain tetap diproses.</p>
+          </div>
+          <div class="tool-cards mt-8 grid grid-cols-2 gap-5" id="tool-cards"></div>
+        </section>
+
+        <section class="mx-auto max-w-[1040px] px-8 pt-16" aria-labelledby="why-title">
+          <div data-reveal class="rounded-[32px] bg-lavender px-10 py-12">
+            <h2 id="why-title" class="text-center text-[30px] font-medium leading-tight tracking-[-0.03em]">Kenapa ExpCore?<br><span class="text-ink-soft">Ringan, rapi, dan aman.</span></h2>
+            <p class="mx-auto mt-3 max-w-md text-center text-[13px] leading-relaxed text-ink-soft">Dirancang untuk tim pajak yang bekerja dengan ratusan PDF setiap bulan.</p>
+            <div class="mt-9 grid grid-cols-3 gap-4">
+              <article class="why-card">
+                <span class="why-icon"><span data-icon="ShieldCheck" data-weight="Filled" class="size-5"></span></span>
+                <h3 class="mt-10 text-[15px] font-semibold">Tetap di perangkat Anda</h3>
+                <p class="mt-1.5 text-[12.5px] leading-relaxed text-ink-soft">PDF diproses secara lokal. Tanpa unggah, tanpa akun, tetap bekerja saat offline.</p>
+              </article>
+              <article class="why-card">
+                <span class="why-icon"><span data-icon="Layers" data-weight="Filled" class="size-5"></span></span>
+                <h3 class="mt-10 text-[15px] font-semibold">Satu folder, sekali proses</h3>
+                <p class="mt-1.5 text-[12.5px] leading-relaxed text-ink-soft">Folder dan semua subfolder dibaca menjadi satu rekap, lengkap dengan asal file.</p>
+              </article>
+              <article class="why-card">
+                <span class="why-icon"><span data-icon="Eye" data-weight="Filled" class="size-5"></span></span>
+                <h3 class="mt-10 text-[15px] font-semibold">Periksa sebelum mengubah</h3>
+                <p class="mt-1.5 text-[12.5px] leading-relaxed text-ink-soft">Penamaan selalu dipratinjau dulu, dan rekap lama hanya diganti setelah dikonfirmasi.</p>
+              </article>
+            </div>
+          </div>
+        </section>
+
+        <section class="mx-auto max-w-[1040px] px-8 py-16">
+          <div data-reveal class="cta relative overflow-hidden rounded-[32px] bg-gradient-to-br from-brand-600 via-brand-500 to-indigo-500 px-10 py-11 text-white">
+            <div aria-hidden="true" class="absolute -right-16 -top-20 size-64 rounded-full bg-white/10"></div>
+            <div aria-hidden="true" class="absolute -bottom-24 right-40 size-52 rounded-full bg-white/10"></div>
+            <div class="relative flex items-center justify-between gap-8">
+              <div>
+                <h2 class="text-[28px] font-medium leading-tight tracking-[-0.03em]">Siap merapikan<br>dokumen pajak hari ini?</h2>
+                <p class="mt-2.5 max-w-md text-[13px] leading-relaxed text-white/85">Pilih folder PDF, proses, lalu buka hasilnya. PDF asli tetap tersimpan di folder sumber.</p>
+              </div>
+              <div class="flex shrink-0 gap-3">
+                <button type="button" class="btn-light h-11 px-5" data-page="bupot">Mulai ekstraksi</button>
+                <button type="button" class="btn-outline-light h-11 px-5" data-page="rename">Penamaan Bupot</button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <footer class="bg-navy px-10 py-8 text-white/70">
+          <div class="mx-auto flex max-w-[1040px] items-center justify-between gap-6 px-8">
+            <div class="flex items-center gap-2.5">
+              <span class="grid size-8 place-items-center rounded-lg bg-white/10 text-white"><span data-icon="DocumentText" data-weight="Filled" class="size-4"></span></span>
+              <div>
+                <p class="text-sm font-semibold text-white">ExpCore</p>
+                <p class="text-xs">Toolkit PDF Coretax · Diproses lokal, tanpa akun</p>
+              </div>
+            </div>
+            <p id="byline" class="text-xs"></p>
+          </div>
+        </footer>
       </div>
     </section>
   </main>
 
   <template id="tool-card">
-    <article class="card tool-card">
-      <div class="tool-card-head"><span class="badge" data-field="tag"></span><span class="number" data-field="number"></span></div>
-      <h3 data-field="title"></h3>
-      <p data-field="detail"></p>
-      <button type="button" class="btn open-tool">Buka alat&nbsp;&nbsp;↗</button>
+    <article class="card tool-card group flex flex-col p-5 transition duration-300 hover:-translate-y-1 hover:shadow-card-hover" data-reveal>
+      <div class="preview relative h-[148px] overflow-hidden rounded-2xl border border-line bg-gradient-to-b from-lavender to-white p-4" aria-hidden="true"></div>
+      <div class="mt-5 flex items-center gap-2">
+        <span class="badge" data-field="tag"></span>
+        <span class="text-xs font-medium text-ink-muted" data-field="number"></span>
+      </div>
+      <h3 class="mt-2.5 text-[17px] font-semibold tracking-tight" data-field="title"></h3>
+      <p class="mt-1 flex-1 text-[13px] leading-relaxed text-ink-soft" data-field="detail"></p>
+      <button type="button" class="open-tool btn-secondary mt-4 h-9 self-start">
+        Buka alat <span data-icon="ArrowUpRight" class="size-4 transition group-hover:translate-x-0.5 group-hover:-translate-y-0.5"></span>
+      </button>
     </article>
   </template>
 
   <template id="tool-page">
-    <section class="page tool">
-      <div class="scroll">
-        <header class="tool-header">
-          <span class="badge" data-field="tag"></span>
-          <h1 tabindex="-1" data-field="title"></h1>
-          <p class="lead" data-field="description"></p>
-        </header>
-        <div class="card picker">
-          <div class="card-head">
-            <h2>01&nbsp;&nbsp; Pilih sumber dokumen</h2>
-            <span class="badge">TERMASUK SUBFOLDER</span>
+    <section class="page tool grid h-full grid-rows-[minmax(0,1fr)_auto]">
+      <div class="scroll h-full overflow-y-auto overscroll-contain">
+        <div class="mx-auto flex min-h-full w-full max-w-[1040px] flex-col px-8 pb-6 pt-8">
+          <header class="tool-header flex items-end justify-between gap-6" data-reveal>
+            <div class="min-w-0">
+              <div class="flex items-center gap-2">
+                <span class="badge" data-field="tag"></span>
+                <span class="text-xs font-medium text-ink-muted" data-field="number"></span>
+              </div>
+              <h1 tabindex="-1" data-field="title" class="mt-3 text-[34px] font-medium leading-tight tracking-[-0.035em]"></h1>
+              <p class="lead mt-1.5 text-[14px] text-ink-soft" data-field="description"></p>
+            </div>
+            <div class="output-chip flex shrink-0 items-center gap-3 rounded-2xl border border-line bg-white px-4 py-3 shadow-soft">
+              <span class="grid size-9 place-items-center rounded-xl bg-emerald-50 text-emerald-600" data-field="output-icon"></span>
+              <div>
+                <p class="text-[11px] font-medium uppercase tracking-wide text-ink-muted" data-field="output-label"></p>
+                <p class="text-[13px] font-semibold" data-field="output-name"></p>
+              </div>
+            </div>
+          </header>
+
+          <div class="card picker mt-7 p-6" data-reveal>
+            <div class="card-head flex items-center justify-between gap-4">
+              <div class="flex items-center gap-3">
+                <span class="step">01</span>
+                <h2 class="text-[16px] font-semibold tracking-tight">Pilih sumber dokumen</h2>
+              </div>
+              <span class="badge"><span data-icon="Layers" data-weight="Filled" class="size-3.5"></span> Termasuk subfolder</span>
+            </div>
+            <p class="folder-label mt-3 text-xs text-ink-muted" data-field="folder-label">Belum ada folder dipilih</p>
+            <div class="folder-row mt-2.5 flex gap-3">
+              <label class="relative min-w-0 flex-1">
+                <span class="sr-only">Folder sumber PDF</span>
+                <span data-icon="FolderOpen" class="pointer-events-none absolute left-3.5 top-1/2 size-5 -translate-y-1/2 text-ink-muted"></span>
+                <input class="folder h-12 w-full rounded-xl border border-line bg-canvas pl-11 pr-4 text-[14px] text-ink outline-none transition placeholder:text-ink-muted focus:border-brand-400 focus:bg-white focus:ring-4 focus:ring-brand-500/15 disabled:text-ink-muted"
+                       type="text" spellcheck="false" autocomplete="off" placeholder="Ketik atau tempel jalur folder, mis. D:\Pajak\Bupot Januari"
+                       aria-label="Folder sumber PDF">
+              </label>
+              <button type="button" class="browse btn-secondary h-12 px-4" aria-keyshortcuts="Control+O">
+                <span data-icon="FolderOpen" class="size-4.5 text-brand-600"></span>Pilih folder
+              </button>
+            </div>
+            <p class="hint mt-3.5 flex gap-2 text-[13px] leading-relaxed text-ink-soft">
+              <span data-icon="InfoCircle" class="mt-0.5 size-4 shrink-0 text-brand-500"></span><span data-field="hint"></span>
+            </p>
           </div>
-          <p class="folder-label" data-field="folder-label">Belum ada folder dipilih</p>
-          <div class="folder-row">
-            <input class="folder" type="text" spellcheck="false" autocomplete="off" aria-label="Folder sumber PDF">
-            <button type="button" class="btn browse" aria-keyshortcuts="Control+O">Pilih folder</button>
-          </div>
-          <p class="hint" data-field="hint"></p>
-        </div>
-        <div class="card activity">
-          <div class="card-head">
-            <h2>02&nbsp;&nbsp; Aktivitas &amp; hasil</h2>
-            <span class="badge status" data-field="status">MENUNGGU FOLDER</span>
-          </div>
-          <div class="progress" role="progressbar" aria-label="Progres pemrosesan" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div class="bar"></div></div>
-          <p class="summary" data-field="summary" aria-live="polite">Pilih folder untuk memulai. Aktivitas akan tampil di sini.</p>
-          <div class="log" role="log" tabindex="0" aria-label="Log aktivitas">Belum ada aktivitas.
+
+          <div class="card activity mt-5 flex min-h-[320px] flex-1 flex-col p-6" data-reveal>
+            <div class="card-head flex items-center justify-between gap-4">
+              <div class="flex items-center gap-3">
+                <span class="step">02</span>
+                <h2 class="text-[16px] font-semibold tracking-tight">Aktivitas &amp; hasil</h2>
+              </div>
+              <span data-field="status" data-state="idle"
+                    class="status inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[11px] font-semibold tracking-wide transition-colors
+                           bg-surface-2 text-ink-soft
+                           data-[state=ready]:bg-brand-50 data-[state=ready]:text-brand-700
+                           data-[state=running]:bg-brand-600 data-[state=running]:text-white
+                           data-[state=done]:bg-emerald-50 data-[state=done]:text-emerald-700
+                           data-[state=empty]:bg-amber-50 data-[state=empty]:text-amber-800
+                           data-[state=error]:bg-rose-50 data-[state=error]:text-rose-700"><span
+                    class="dot size-1.5 rounded-full bg-current" aria-hidden="true"></span><span data-label>MENUNGGU FOLDER</span></span>
+            </div>
+            <div class="progress mt-4 h-1.5 overflow-hidden rounded-full bg-surface-2" role="progressbar"
+                 aria-label="Progres pemrosesan" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+              <div class="bar h-full w-0 rounded-full bg-gradient-to-r from-brand-500 to-indigo-500"></div>
+            </div>
+            <p class="summary mt-3 text-[13px] text-ink-soft" data-field="summary" aria-live="polite">Pilih folder untuk memulai. Aktivitas akan tampil di sini.</p>
+            <div class="log mt-3 min-h-[130px] flex-[1_1_130px] overflow-y-auto wrap-anywhere whitespace-pre-wrap rounded-xl border border-line bg-canvas px-4 py-3 font-mono text-[12px] leading-relaxed text-ink-soft focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-brand-500/20"
+                 role="log" tabindex="0" aria-label="Log aktivitas">Belum ada aktivitas.
 PDF asli tetap tersimpan di folder sumber.</div>
-          <div class="tools-row">
-            <button type="button" class="btn copy">Salin log</button>
-            <button type="button" class="btn open" disabled>Buka hasil&nbsp;&nbsp;↗</button>
+            <div class="tools-row mt-4 flex justify-between gap-3">
+              <button type="button" class="copy btn-secondary h-9"><span data-icon="Copy" class="size-4"></span><span data-label>Salin log</span></button>
+              <button type="button" class="open btn-secondary h-9" disabled>Buka hasil <span data-icon="ArrowUpRight" class="size-4"></span></button>
+            </div>
           </div>
         </div>
       </div>
-      <footer class="tool-footer">
-        <p class="output-hint" data-field="output"></p>
-        <button type="button" class="btn primary run" disabled></button>
-        <button type="button" class="btn apply" disabled hidden>Terapkan nama</button>
+      <footer class="tool-footer border-t border-line bg-white/90 backdrop-blur">
+        <div class="mx-auto flex w-full max-w-[1040px] items-center gap-3 px-8 py-3.5">
+          <p class="output-hint flex min-w-0 flex-1 items-center gap-2 text-xs text-ink-muted" data-field="output"></p>
+          <button type="button" class="run btn-primary h-11 min-w-[180px] justify-center px-5" disabled></button>
+          <button type="button" class="apply btn-dark h-11 px-5" disabled hidden>Terapkan nama</button>
+        </div>
       </footer>
     </section>
   </template>

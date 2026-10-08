@@ -9,7 +9,7 @@ const { execFileSync } = require('node:child_process');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { after, afterEach, before, describe, it } = require('node:test');
+const { after, afterEach, before, beforeEach, describe, it } = require('node:test');
 const { _electron: electron } = require('playwright-core');
 
 const ROOT = path.join(__dirname, '..');
@@ -32,6 +32,10 @@ function fixtures(name, copies = 1) {
   }
   return folder;
 }
+
+// Polling berbasis interval, bukan requestAnimationFrame: rAF berhenti total bila jendela tes
+// diminimalkan oleh aktivitas desktop, sehingga penantian berbasis rAF tidak pernah selesai.
+const waitFor = (fn, arg, options = {}) => page.waitForFunction(fn, arg, { polling: 100, ...options });
 
 const tool = (key) => `#page-${key}`;
 const status = (key) => page.textContent(`${tool(key)} [data-field="status"]`);
@@ -76,8 +80,8 @@ async function setFolder(key, folder) {
 async function runTo(key, expected, button = '.run', timeout = 60000) {
   const selector = `${tool(key)} [data-field="status"]`;
   await page.click(`${tool(key)} ${button}`);
-  await page.waitForFunction((s) => document.querySelector(s).textContent === 'MEMPROSES', selector, { timeout });
-  await page.waitForFunction(([s, wanted]) => document.querySelector(s).textContent === wanted,
+  await waitFor((s) => document.querySelector(s).textContent === 'MEMPROSES', selector, { timeout });
+  await waitFor(([s, wanted]) => document.querySelector(s).textContent === wanted,
     [selector, expected], { timeout });
 }
 
@@ -105,6 +109,17 @@ async function wheelOver(selector, deltaY) {
   await page.waitForTimeout(150);
 }
 
+// Posisi gulir halaman alat di mana log terlihat, tetapi halaman masih dapat digulir lebih jauh.
+function logBaseline(key) {
+  return page.evaluate((name) => {
+    const scroll = document.querySelector(`#page-${name} .scroll`);
+    const log = document.querySelector(`#page-${name} .log`);
+    const offset = log.getBoundingClientRect().top - scroll.getBoundingClientRect().top + scroll.scrollTop;
+    const max = scroll.scrollHeight - scroll.clientHeight;
+    return Math.max(0, Math.min(Math.round(offset - scroll.clientHeight * 0.6), max - 40));
+  }, key);
+}
+
 async function setSize(width, height) {
   // Jendela tes tampil di desktop sungguhan; jendela yang dimaksimalkan (mis. Win+Up) mengabaikan setContentSize.
   await app.evaluate(({ BrowserWindow }, size) => {
@@ -113,7 +128,7 @@ async function setSize(width, height) {
     if (window.isMinimized()) window.restore();
     window.setContentSize(...size);
   }, [width, height]);
-  await page.waitForFunction((size) => window.innerWidth === size[0] && window.innerHeight === size[1], [width, height],
+  await waitFor((size) => window.innerWidth === size[0] && window.innerHeight === size[1], [width, height],
     { timeout: 10000 }).catch(async (error) => {
     const state = await app.evaluate(({ BrowserWindow, screen }) => {
       const w = BrowserWindow.getAllWindows()[0];
@@ -138,6 +153,11 @@ before(async () => {
   page.on('pageerror', (error) => page.errors.push(error.message));
   page.on('console', (message) => message.type() === 'error' && page.errors.push(message.text()));
   await page.waitForSelector('body[data-ready="true"]');
+  // Riwayat ukuran jendela untuk artefak kegagalan (window manager dapat mengubahnya terlambat).
+  await page.evaluate(() => {
+    window.__resizes = [];
+    addEventListener('resize', () => window.__resizes.push([Math.round(performance.now()), innerWidth, innerHeight]));
+  });
 });
 
 after(async () => {
@@ -149,6 +169,20 @@ after(async () => {
 });
 
 describe('ExpCore Electron', () => {
+  // Jendela tes tampil di desktop sungguhan; bila diminimalkan dari luar, pulihkan sebelum tes berikutnya.
+  beforeEach(async (t) => {
+    const restored = await app.evaluate(({ BrowserWindow }) => {
+      const window = BrowserWindow.getAllWindows()[0];
+      if (!window?.isMinimized()) return false;
+      window.restore();
+      return true;
+    });
+    if (restored) {
+      t.diagnostic('jendela tes sempat diminimalkan dari luar aplikasi; dipulihkan');
+      await waitFor(() => document.visibilityState === 'visible', null, { timeout: 5000 });
+    }
+  });
+
   // Tes gagal meninggalkan bukti: screenshot dan keadaan jendela/UI di folder artefak (tidak ikut dihapus).
   afterEach(async (t) => {
     if (t.passed || !page) return;
@@ -165,7 +199,9 @@ describe('ExpCore Electron', () => {
       const w = BrowserWindow.getAllWindows()[0];
       return w && { bounds: w.getBounds(), focused: w.isFocused(), minimized: w.isMinimized(), maximized: w.isMaximized() };
     }).catch((error) => ({ error: error.message }));
-    fs.writeFileSync(`${base}.json`, JSON.stringify({ state, win, errors: page.errors }, null, 2));
+    const resizes = await page.evaluate(() => ({ now: Math.round(performance.now()), last: (window.__resizes ?? []).slice(-12) }))
+      .catch((error) => ({ error: error.message }));
+    fs.writeFileSync(`${base}.json`, JSON.stringify({ state, win, resizes, errors: page.errors }, null, 2));
     t.diagnostic(`artefak kegagalan: ${base}.png / .json`);
   });
 
@@ -173,9 +209,16 @@ describe('ExpCore Electron', () => {
     const window = await app.browserWindow(page);
     assert.match(await window.evaluate((w) => w.getTitle()), /^ExpCore \d+\.\d+\.\d+ — Toolkit PDF Coretax$/);
     const version = await app.evaluate(({ app: electronApp }) => electronApp.getVersion());
-    assert.equal(await page.textContent('#byline'), `v${version}   /   by Iyan Sanjaya`);
+    assert.equal(await page.textContent('#byline'), `Versi ${version} · by Iyan Sanjaya`);
     assert.equal(await page.locator('.nav-item').count(), 5);
     assert.equal(await page.locator('.tool-card').count(), 4);
+    // Semua placeholder ikon diganti SVG Reicon; ikon dekoratif disembunyikan dari pembaca layar.
+    assert.equal(await page.locator('[data-icon]').count(), 0);
+    const icons = await page.$$eval('svg.reicon', (els) => els.map((el) => el.getAttribute('aria-hidden')));
+    assert.ok(icons.length > 40 && icons.every((hidden) => hidden === 'true'), `ikon: ${icons.length}`);
+    // Font Inter dibundel lokal (tanpa jaringan) dan benar-benar dipakai.
+    await page.evaluate(() => document.fonts.ready);
+    assert.ok(await page.evaluate(() => document.fonts.check('500 16px "Inter Variable"')));
     assert.deepEqual(await window.evaluate((w) => w.getMinimumSize()), [960, 620]);
     assert.equal(await window.evaluate((w) => w.isMenuBarVisible()), false);
     assert.deepEqual(page.errors, []);
@@ -185,12 +228,19 @@ describe('ExpCore Electron', () => {
     assert.ok(fs.readFileSync(path.join(ROOT, 'app', 'main.js'), 'utf8').includes(`const APP_ID = '${appId}';`));
   });
 
-  it('navigasi lewat sidebar, kartu beranda, dan Alt+0..4', async () => {
+  it('navigasi lewat menu atas, kartu beranda, dan Alt+0..4', async () => {
     const expectPage = async (key, title) => {
       assert.equal(await page.isVisible(key === 'home' ? '#page-home' : tool(key)), true, key);
       assert.equal(await page.locator('[id^="page-"]:visible').count(), 1);
-      assert.equal(await page.textContent('#breadcrumb'), `Ruang kerja\u00a0\u00a0/\u00a0\u00a0${title}`);
       assert.equal(await page.getAttribute(`.nav-item[data-page="${key}"]`, 'aria-current'), 'page');
+      assert.equal(await page.locator('.nav-item[aria-current="page"]').count(), 1);
+      assert.equal(await page.textContent(`.nav-item[data-page="${key}"]`), title);
+      // Pill indikator (Motion) berhenti tepat di bawah item aktif.
+      await waitFor((selector) => {
+        const pill = document.querySelector('#nav-indicator').getBoundingClientRect();
+        const item = document.querySelector(selector).getBoundingClientRect();
+        return Math.abs(pill.left - item.left) < 1 && Math.abs(pill.width - item.width) < 1;
+      }, `.nav-item[data-page="${key}"]`, { timeout: 3000 });
     };
     await page.click('.nav-item[data-page="pm"]');
     await expectPage('pm', 'Pajak Masukan');
@@ -223,19 +273,22 @@ describe('ExpCore Electron', () => {
             run: box('.run'), apply: box('.apply'), log: box('.log'),
             viewport: [window.innerWidth, window.innerHeight],
             title: getComputedStyle(document.querySelector('#home-title')).fontSize,
-            guideBeside: document.querySelector('.guide').getBoundingClientRect().top
-              < document.querySelector('.hero .lead').getBoundingClientRect().bottom,
             columns: getComputedStyle(document.querySelector('.tool-cards')).gridTemplateColumns.split(' ').length,
-            pageWidth: document.querySelector('.content').clientWidth - 64,
+            header: ['.brand', '#main-nav', '.header-actions'].map((s) => document.querySelector(s).getBoundingClientRect().toJSON()),
+            labels: [...document.querySelectorAll('.header-actions .label')].map((el) => el.getClientRects().length > 0),
           };
         }, key);
         const label = `${key} @ ${width}x${height}`;
         assert.ok(metrics.docOverflow <= 0, `${label}: horizontal overflow dokumen`);
         assert.ok(metrics.scrollOverflow <= 0, `${label}: horizontal overflow halaman`);
+        const [brand, nav, actions] = metrics.header;
+        assert.ok(brand.right <= nav.left && nav.right <= actions.left && actions.right <= metrics.viewport[0],
+          `${label}: header bertumpuk ${JSON.stringify(metrics.header)}`);
+        // Di bawah 1120 px, tombol update dan badge privasi menyusut menjadi ikon saja.
+        assert.deepEqual(metrics.labels, Array(2).fill(metrics.viewport[0] >= 1120), label);
         if (key === 'home') {
-          assert.equal(metrics.title, metrics.pageWidth < 840 ? '34px' : '40px', label);
-          assert.equal(metrics.guideBeside, metrics.pageWidth >= 690, label);
-          assert.equal(metrics.columns, metrics.pageWidth < 600 ? 1 : 2, label);
+          assert.equal(metrics.title, metrics.viewport[0] < 1100 ? '40px' : '50px', label);
+          assert.equal(metrics.columns, 2, label);
         } else {
           for (const button of key === 'rename' ? [metrics.run, metrics.apply] : [metrics.run]) {
             assert.ok(button.bottom <= metrics.viewport[1] && button.right <= metrics.viewport[0],
@@ -254,10 +307,11 @@ describe('ExpCore Electron', () => {
     const log = `${tool('bupot2024')} .log`;
     const top = (selector) => page.$eval(selector, (el) => el.scrollTop);
     // Scroll roda di Windows dianimasikan; tunggu hasilnya alih-alih jeda tetap, lalu catat lamanya.
-    const scrolled = async (selector, label) => {
+    const scrolled = async (selector, label, from = 0) => {
       const started = Date.now();
       while (Date.now() - started < 2000) {
-        if (await top(selector) > 0) {
+        // > 1 px: posisi gulir dibulatkan ke piksel perangkat (mis. 218 -> 218,4 pada skala 125%).
+        if (await top(selector) > from + 1) {
           if (Date.now() - started > 150) t.diagnostic(`${label}: bergulir setelah ${Date.now() - started} ms`);
           return true;
         }
@@ -276,10 +330,10 @@ describe('ExpCore Electron', () => {
       t.diagnostic(`${label} GAGAL: ${JSON.stringify({ ...state, win })}`);
       return false;
     };
-    // Mulai dari keadaan diam: animasi gestur sebelumnya selesai dan posisi kembali ke atas.
-    const reset = async (selector) => {
+    // Mulai dari keadaan diam: animasi gestur sebelumnya selesai dan posisi kembali ke titik awal.
+    const reset = async (selector, value = 0) => {
       await page.waitForTimeout(300);
-      await page.$eval(selector, (el) => { el.scrollTop = 0; });
+      await page.$eval(selector, (el, v) => { el.scrollTop = v; }, value);
       await page.waitForTimeout(300);
     };
     for (const target of [`${tool('bupot2024')} .hint`, `${tool('bupot2024')} .browse`, `${tool('bupot2024')} .folder`]) {
@@ -287,28 +341,37 @@ describe('ExpCore Electron', () => {
       await wheelOver(target, 120);
       assert.ok(await scrolled(scroll, target), `roda mouse di atas ${target} harus menggulir halaman`);
     }
-    // Log pendek tidak menahan roda mouse.
-    await reset(scroll);
+    // Log pendek tidak menahan roda mouse. Baseline dihitung ulang sebelum setiap langkah karena
+    // window manager Windows dapat mengubah geometri jendela tes setelah setSize.
+    let base = await logBaseline('bupot2024');
+    await reset(scroll, base);
     await wheelOver(log, 120);
-    assert.ok(await scrolled(scroll, 'log pendek'), 'log pendek menahan scroll halaman');
+    assert.ok(await scrolled(scroll, 'log pendek', base), 'log pendek menahan scroll halaman');
     // Log panjang: hanya log yang bergulir; di ujungnya halaman ikut bergulir.
     await page.$eval(log, (el) => el.append('baris log\n'.repeat(80)));
     await reset(log);
-    await reset(scroll);
+    base = await logBaseline('bupot2024');
+    await reset(scroll, base);
     await wheelOver(log, 120);
     assert.ok(await scrolled(log, 'log panjang'), 'log panjang tidak bergulir');
     await page.waitForTimeout(400);
-    assert.equal(await top(scroll), 0, 'log dan halaman bergulir bersamaan');
+    assert.ok(Math.abs(await top(scroll) - base) < 1, 'log dan halaman bergulir bersamaan');
     // Pengguna menggulir log sampai ujung, lalu memutar roda lagi pada gestur baru.
     await wheelOver(log, 120 * 40);
-    await page.waitForFunction((selector) => {
+    await waitFor((selector) => {
+      // Di ujung bila mencoba menggulir lebih jauh tidak mengubah posisi (aman untuk DPI pecahan).
       const el = document.querySelector(selector);
-      return el.scrollHeight - el.clientHeight - el.scrollTop < 1;
+      const top = el.scrollTop;
+      el.scrollTop = top + 100000;
+      const moved = el.scrollTop - top;
+      el.scrollTop = top;
+      return Math.abs(moved) < 0.5;
     }, log, { timeout: 3000 });
-    await reset(scroll);
+    base = await logBaseline('bupot2024');
+    await reset(scroll, base);
     await page.waitForTimeout(300); // Gestur baru, bukan lanjutan gestur yang terkunci pada log.
     await wheelOver(log, 120);
-    assert.ok(await scrolled(scroll, 'ujung log'), 'ujung log menahan scroll halaman');
+    assert.ok(await scrolled(scroll, 'ujung log', base), 'ujung log menahan scroll halaman');
     await page.$eval(log, (el) => { el.textContent = ''; });
     await reset(scroll);
   });
@@ -433,9 +496,12 @@ describe('ExpCore Electron', () => {
     await setFolder('pm', folder);
     await stubMain();
     await page.click(`${tool('pm')} .run`);
-    await page.waitForFunction(() => document.querySelector('#page-pm [data-field="summary"]').textContent.startsWith('Memeriksa PDF'), null, { timeout: 60000 });
+    await waitFor(() => document.querySelector('#page-pm [data-field="summary"]').textContent.startsWith('Memeriksa PDF'), null, { timeout: 60000 });
     assert.equal(await status('pm'), 'MEMPROSES');
-    assert.equal(await page.textContent('.nav-item[data-page="pm"]'), 'Pajak Masukan  ···');
+    // Item menu alat yang sibuk ditandai aria-busy dan titik berdenyut; teksnya tetap judul alat.
+    assert.equal(await page.getAttribute('.nav-item[data-page="pm"]', 'aria-busy'), 'true');
+    assert.equal(await page.isVisible('.nav-item[data-page="pm"] .busy-dot'), true);
+    assert.equal(await page.textContent('.nav-item[data-page="pm"]'), 'Pajak Masukan');
     assert.ok(await page.$$eval('.folder, .browse, .run, .apply', (els) => els.every((el) => el.disabled)));
     await page.keyboard.press('Alt+1');
     assert.equal(await page.isVisible(tool('bupot')), true, 'navigasi tetap aktif');
@@ -445,22 +511,32 @@ describe('ExpCore Electron', () => {
     assert.deepEqual(closing.map((d) => d.title), ['Proses masih berjalan']);
     assert.equal(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length), 1);
     // Event progres pertama bernilai 0; tunggu langkah berikutnya sebelum memeriksa.
-    await page.waitForFunction(() => Number(document.querySelector('#page-pm .progress').getAttribute('aria-valuenow')) > 0,
+    await waitFor(() => Number(document.querySelector('#page-pm .progress').getAttribute('aria-valuenow')) > 0,
       null, { timeout: 60000 });
     const progress = Number(await page.getAttribute(`${tool('pm')} .progress`, 'aria-valuenow'));
     assert.ok(progress < 100 && await status('pm') === 'MEMPROSES', `progres determinan saat berjalan: ${progress}`);
-    await page.waitForFunction(() => document.querySelector('#page-pm [data-field="status"]').textContent === 'SELESAI', null, { timeout: 120000 });
+    await waitFor(() => document.querySelector('#page-pm [data-field="status"]').textContent === 'SELESAI', null, { timeout: 120000 });
     assert.equal(await page.textContent(`${tool('pm')} [data-field="summary"]`), 'Selesai — 40 baris, 80 PDF dilewati.');
+    assert.equal(await page.getAttribute('.nav-item[data-page="pm"]', 'aria-busy'), 'false');
+    assert.equal(await page.isHidden('.nav-item[data-page="pm"] .busy-dot'), true);
     // Pekerjaan selesai saat halaman lain aktif: kembali ke alat menampilkan baris log terakhir.
     await page.keyboard.press('Alt+3');
-    assert.ok(await page.$eval(`${tool('pm')} .log`, (el) => el.scrollHeight > el.clientHeight
-      && el.scrollHeight - el.clientHeight - el.scrollTop < 1), 'log tidak berada di baris terakhir');
+    assert.ok(await page.$eval(`${tool('pm')} .log`, (el) => {
+      // Di ujung bila mencoba menggulir lebih jauh tidak mengubah posisi (aman untuk DPI pecahan).
+      const top = el.scrollTop;
+      el.scrollTop = top + 100000;
+      const moved = el.scrollTop - top;
+      el.scrollTop = top;
+      return el.scrollHeight > el.clientHeight && Math.abs(moved) < 0.5;
+    }), 'log tidak berada di baris terakhir');
     // Log panjang yang digulir otomatis ke ujung tidak boleh menahan roda mouse (termasuk DPI pecahan).
     await setSize(960, 620);
-    await page.$eval(`${tool('pm')} .scroll`, (el) => { el.scrollTop = 0; });
+    const base = await logBaseline('pm');
+    await page.$eval(`${tool('pm')} .scroll`, (el, value) => { el.scrollTop = value; }, base);
     await page.waitForTimeout(600);
     await wheelOver(`${tool('pm')} .log`, 120);
-    assert.ok(await page.$eval(`${tool('pm')} .scroll`, (el) => el.scrollTop) > 0, 'ujung log otomatis menahan scroll halaman');
+    assert.ok(await eventually(async () => await page.$eval(`${tool('pm')} .scroll`, (el) => el.scrollTop) > base + 1, 2000)
+      .catch(() => false), 'ujung log otomatis menahan scroll halaman');
     assert.ok(await page.$$eval('.folder, .browse', (els) => els.every((el) => !el.disabled)));
   });
 
@@ -469,11 +545,11 @@ describe('ExpCore Electron', () => {
     try {
       await page.keyboard.press('Alt+3');
       await page.click(`${tool('pm')} .copy`);
-      assert.equal(await page.textContent(`${tool('pm')} .copy`), 'Disalin ✓');
+      assert.equal(await page.textContent(`${tool('pm')} .copy`), 'Disalin');
       const copied = await app.evaluate(({ clipboard }) => clipboard.readText());
       assert.equal(copied, await page.textContent(`${tool('pm')} .log`));
       assert.match(copied, /Selesai — 40 baris/);
-      await page.waitForFunction(() => document.querySelector('#page-pm .copy').textContent === 'Salin log', null, { timeout: 3000 });
+      await waitFor(() => document.querySelector('#page-pm .copy').textContent === 'Salin log', null, { timeout: 3000 });
     } finally {
       await app.evaluate(({ clipboard }, text) => clipboard.writeText(text), saved);
     }
@@ -483,7 +559,7 @@ describe('ExpCore Electron', () => {
     await page.keyboard.press('Alt+2');
     await page.focus('.nav-item[data-page="bupot2024"]');
     await page.keyboard.press('Control+O');
-    await page.waitForFunction((f) => document.querySelector('#page-bupot2024 .folder').value === f, picked);
+    await waitFor((f) => document.querySelector('#page-bupot2024 .folder').value === f, picked);
     assert.equal((await calls()).picks[0].properties[0], 'openDirectory');
     assert.equal(await status('bupot2024'), 'SIAP DIPROSES');
 
@@ -496,8 +572,10 @@ describe('ExpCore Electron', () => {
 
     await page.focus(`${tool('bupot2024')} .folder`);
     await page.keyboard.press('Tab');
-    assert.equal(await page.evaluate(() => document.activeElement.textContent), 'Pilih folder');
-    assert.equal(await page.evaluate(() => getComputedStyle(document.activeElement).borderTopColor), 'rgb(255, 90, 0)');
+    assert.equal(await page.evaluate(() => document.activeElement.textContent.trim()), 'Pilih folder');
+    // Fokus keyboard terlihat: cincin ungu (box-shadow ring), bukan sekadar perubahan warna halus.
+    await waitFor(() => /0px 0px 0px 4px/.test(getComputedStyle(document.activeElement).boxShadow), null,
+      { timeout: 2000 });
     await page.keyboard.press('Enter');
     await eventually(async () => (await calls()).picks.length === 2);
   });
@@ -519,6 +597,51 @@ describe('ExpCore Electron', () => {
     assert.match(page.url(), /index\.html$/);
     assert.equal(app.windows().length, 1);
     assert.deepEqual(page.errors, []);
+  });
+
+  it('animasi beranda: hero bergerak, setiap bagian muncul penuh saat digulir', async () => {
+    await page.keyboard.press('Alt+0');
+    await setSize(1180, 800);
+    // Kartu hero melayang terus (Motion); animasi lain sudah selesai sejak awal.
+    assert.ok(await page.evaluate(() => document.getAnimations().length) >= 3, 'animasi melayang tidak berjalan');
+    const scroll = '#page-home .scroll';
+    const max = await page.$eval(scroll, (el) => el.scrollHeight - el.clientHeight);
+    for (let y = 0; y <= max; y += 250) {
+      await page.$eval(scroll, (el, value) => { el.scrollTop = value; }, y);
+      await page.waitForTimeout(80);
+    }
+    await page.$eval(scroll, (el) => { el.scrollTop = el.scrollHeight; });
+    await waitFor(() => [...document.querySelectorAll('#page-home [data-reveal]')]
+      .every((el) => Number(getComputedStyle(el).opacity) > 0.999), null, { timeout: 5000 });
+    assert.equal(await page.locator('#page-home [data-reveal]').count(), 13);
+    await page.$eval(scroll, (el) => { el.scrollTop = 0; });
+  });
+
+  it('gerak dikurangi: konten langsung tampil tanpa animasi', async () => {
+    const profile = path.join(temp, 'profil-gerak');
+    const calm = await electron.launch({
+      args: [`--user-data-dir=${profile}`, ...(PACKAGED ? [] : [ROOT])], cwd: ROOT, executablePath: PACKAGED ?? undefined,
+    });
+    try {
+      const calmPage = await calm.firstWindow();
+      await calmPage.waitForSelector('body[data-ready="true"]');
+      // Preferensi sistem dibaca saat halaman dimuat: emulasikan lalu muat ulang.
+      await calmPage.emulateMedia({ reducedMotion: 'reduce' });
+      await calmPage.reload();
+      await calmPage.waitForSelector('body[data-ready="true"]');
+      assert.equal(await calmPage.evaluate(() => matchMedia('(prefers-reduced-motion: reduce)').matches), true);
+      assert.ok(await calmPage.$$eval('#page-home [data-reveal]', (els) => els.every((el) => getComputedStyle(el).opacity === '1')));
+      // Tanpa gerakan: tidak ada animasi Motion (WAAPI) maupun animasi CSS; transisi warna tetap boleh.
+      const moving = () => calmPage.evaluate(() => document.getAnimations()
+        .filter((a) => a.constructor.name !== 'CSSTransition' || /transform|translate|scale|opacity/.test(a.transitionProperty))
+        .map((a) => a.constructor.name + ':' + (a.animationName || a.transitionProperty || '')));
+      assert.deepEqual(await moving(), []);
+      await calmPage.keyboard.press('Alt+1');
+      assert.deepEqual(await moving(), []);
+      assert.equal(await calmPage.isVisible('#page-bupot .folder'), true);
+    } finally {
+      await calm.close();
+    }
   });
 
   it('instance kedua tidak membuka jendela baru', async () => {

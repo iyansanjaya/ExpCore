@@ -72,11 +72,20 @@ def build_engine(version):
 
 
 def build_app(version):
-    node = shutil.which("node")
-    if not node or not ELECTRON_BUILDER.is_file():
+    node, npm = shutil.which("node"), shutil.which("npm")
+    if not node or not npm or not ELECTRON_BUILDER.is_file():
         raise RuntimeError("Node.js dan dependency npm belum tersedia. Jalankan: npm ci")
+    # Renderer (Tailwind + esbuild) dibangun ulang agar paket tidak memuat CSS/JS lama.
+    subprocess.run([npm, "run", "build:renderer"], cwd=ROOT, check=True)
     subprocess.run([node, str(ELECTRON_BUILDER), "--win", "--x64", "--publish", "never"], cwd=ROOT, check=True)
     dist = ROOT / "dist"
+    asar = subprocess.run([node, "-e", "console.log(JSON.stringify(require('@electron/asar').listPackage(process.argv[1])))",
+                           str(dist / "win-unpacked" / "resources" / "app.asar")], cwd=ROOT, check=True,
+                          capture_output=True, text=True)
+    packed = {path.replace("\\", "/") for path in json.loads(asar.stdout)}
+    missing = {"/app/renderer/dist/app.js", "/app/renderer/dist/styles.css", "/app/renderer/index.html"} - packed
+    if missing or any(path.startswith("/app/renderer/src") for path in packed):
+        raise RuntimeError(f"Isi app.asar tidak sesuai: hilang {sorted(missing)}, atau sumber renderer ikut terbawa.")
     installer = dist / f"ExpCore-Setup-{version}.exe"
     for path in (dist / "win-unpacked" / "ExpCore.exe", dist / "win-unpacked" / "resources" / "engine" / "expcore_engine.exe",
                  installer, dist / f"{installer.name}.blockmap"):

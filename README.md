@@ -30,20 +30,29 @@
 | **Pemindaian Subfolder**    | Memproses seluruh PDF dalam folder induk dan semua subfolder menjadi satu hasil.                                        |
 | **Output Terformat**        | Menghasilkan Excel dengan format angka, header, lebar kolom otomatis, dan informasi folder sumber.                      |
 
+*Kode* (kelas `ExpCore` di `ExpCore.py`): Bukti Potong 2026 → `process_bupot()` dan
+`_extract_bupot_rows()`; Bukti Potong 2024 → `process_bupot_2024()` dan
+`_extract_bupot2024_rows()`; Pajak Masukan → `process_pm()`; Penamaan Otomatis Bupot →
+`process_rename_bupot()` dan `_extract_rename_bupot_data()`; output Excel → `_write_excel()`.
+
 Semua proses berjalan secara lokal. ExpCore TIDAK mengirim PDF atau hasil ekstraksi ke internet.
 
 ---
 
 ## Teknologi
 
-- **Aplikasi desktop:** [Electron](https://www.electronjs.org/) — antarmuka HTML/CSS tanpa framework
+- **Aplikasi desktop:** [Electron](https://www.electronjs.org/)
+- **Antarmuka:** [Tailwind CSS](https://tailwindcss.com/) v4, [Motion](https://motion.dev/) (Framer Motion untuk JavaScript), ikon [Reicon](https://reicon.dev/), dan font Inter yang dibundel lokal
 - **Engine PDF:** Python — [pdfplumber](https://github.com/jsvine/pdfplumber), [pandas](https://pandas.pydata.org/), dan [openpyxl](https://openpyxl.readthedocs.io/)
 - **Executable engine:** [Nuitka](https://nuitka.net/)
 - **Installer & update:** [electron-builder](https://www.electron.build/) (NSIS) dan electron-updater melalui GitHub Releases
 
 Electron menampilkan antarmuka. Setiap pekerjaan menjalankan satu proses engine Python
 (`expcore_engine.py`) yang mengirim log, progres, dan hasil dalam JSON per baris.
-Logika ekstraksi di `ExpCore.py` tidak bergantung pada antarmuka.
+Logika ekstraksi di `ExpCore.py` tidak bergantung pada antarmuka. Kode antarmuka di
+`app/renderer/src/` dibangun ke `app/renderer/dist/` dengan `npm run build:renderer`
+(Tailwind CLI + esbuild); `npm start`, `npm test`, dan `build_release.py` menjalankannya
+otomatis, jadi aplikasi tetap bekerja sepenuhnya offline.
 
 ---
 
@@ -156,6 +165,9 @@ Log_Penamaan_Bupot_Pratinjau_YYYYMMDD_HHMMSS.csv
 Log_Penamaan_Bupot_Penerapan_YYYYMMDD_HHMMSS.csv
 ```
 
+*Kode:* log CSV ditulis oleh `process_rename_bupot()` di `ExpCore.py`; data nama dibaca
+oleh `_extract_rename_bupot_data()`.
+
 ---
 
 ## Pengujian
@@ -173,8 +185,9 @@ Untuk menguji ulang 151 PDF feedback lokal di `contoh-pdf/JAN` dan `contoh-pdf/F
 ```
 
 Tes memeriksa JAN menghasilkan 75 baris dan FEB 76 baris, termasuk sembilan file yang sebelumnya terlewat karena tarif ditulis sebagai bilangan bulat.
+*Kode:* `test_bupot2024_pdf_samples()` di `test_expcore.py`.
 
-Aplikasi Electron end-to-end (memakai engine dari `.venv`; dialog native di-stub, PDF yang
+Aplikasi Electron end-to-end (renderer dibangun otomatis lebih dulu; memakai engine dari `.venv`; dialog native di-stub, PDF yang
 diproses adalah fixture sintetis di folder sementara):
 
 ```bash
@@ -335,7 +348,10 @@ ExpCore/
 │   ├── main.js            # Proses main: jendela, dialog, IPC, status pekerjaan, update
 │   ├── preload.js         # Jembatan aman renderer -> main (window.expcore)
 │   ├── engine.js          # Menjalankan engine Python dan membaca protokol JSON
-│   └── renderer/          # index.html, styles.css, app.js
+│   └── renderer/
+│       ├── index.html     # Markup halaman dan template (kelas Tailwind)
+│       ├── src/           # styles.css (tema Tailwind) dan app.js (logika, Motion, Reicon)
+│       └── dist/          # Hasil build renderer (tidak di-commit)
 ├── ExpCore.py             # Parser PDF dan ekspor data
 ├── expcore_engine.py      # CLI engine: satu pekerjaan per proses
 ├── build_release.py       # Build engine (Nuitka) + installer (electron-builder)
