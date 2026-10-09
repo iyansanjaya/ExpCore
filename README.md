@@ -56,8 +56,8 @@ Semua proses berjalan secara lokal. ExpCore TIDAK mengirim PDF atau hasil ekstra
 Electron menampilkan antarmuka. Setiap pekerjaan menjalankan satu proses engine Python
 (`expcore_engine.py`) yang mengirim log, progres, dan hasil dalam JSON per baris.
 Logika ekstraksi di `ExpCore.py` tidak bergantung pada antarmuka. Kode antarmuka di
-`app/renderer/src/` dibangun ke `app/renderer/dist/` dengan `npm run build:renderer`
-(Tailwind CLI + esbuild); `npm start`, `npm test`, dan `build_release.py` menjalankannya
+`app/renderer/src/` dibangun ke `app/renderer/dist/` dengan `bun run build:renderer`
+(Tailwind CLI + esbuild); `bun start`, `bun test`, dan `build_release.py` menjalankannya
 otomatis, jadi aplikasi tetap bekerja sepenuhnya offline.
 
 ---
@@ -73,8 +73,8 @@ cd ExpCore
 python -m venv .venv
 ./.venv/Scripts/python.exe -m pip install --upgrade pip
 ./.venv/Scripts/python.exe -m pip install pdfplumber pandas openpyxl
-npm ci
-npm start
+bun ci
+bun start
 ```
 
 Dalam mode pengembangan, aplikasi menjalankan engine dengan `./.venv/Scripts/python.exe`,
@@ -248,27 +248,27 @@ Aplikasi Electron end-to-end (renderer dibangun otomatis lebih dulu; memakai eng
 diproses adalah fixture sintetis di folder sementara):
 
 ```bash
-npm test
+bun test
 ```
 
 Ulangi pada pembesaran tampilan 125% dan 150%:
 
 ```bash
-EXPCORE_SCALE=1.25 npm test
+EXPCORE_SCALE=1.25 bun test
 ```
 
 ```bash
-EXPCORE_SCALE=1.5 npm test
+EXPCORE_SCALE=1.5 bun test
 ```
 
 Setelah build, uji aplikasi hasil paket beserta engine Nuitka dan alur update (server
 update lokal, tanpa GitHub):
 
 ```bash
-EXPCORE_APP=dist/win-unpacked/ExpCore.exe npm test
+EXPCORE_APP=dist/win-unpacked/ExpCore.exe bun test
 ```
 
-Di PowerShell, atur variabel lebih dulu, misalnya `$env:EXPCORE_SCALE = '1.5'; npm test`.
+Di PowerShell, atur variabel lebih dulu, misalnya `$env:EXPCORE_SCALE = '1.5'; bun test`.
 
 Tes E2E membuka jendela aplikasi sungguhan; jangan memakai desktop (memaksimalkan,
 memindahkan, atau menutupi jendela tes) selama tes berjalan. Tes yang gagal menyimpan
@@ -309,7 +309,7 @@ dist/win-unpacked/
 
 Aplikasi memilih engine sesuai cara dijalankan:
 
-- **`npm start` (pengembangan):** renderer dibangun, lalu Electron berjalan dari source dan
+- **`bun start` (pengembangan):** renderer dibangun, lalu Electron berjalan dari source dan
   memanggil `./.venv/Scripts/python.exe expcore_engine.py`. Nuitka tidak diperlukan.
 - **Hasil paket / terpasang:** Electron memanggil `resources/engine/expcore_engine.exe`.
 
@@ -329,14 +329,14 @@ di-commit.
 > **tidak** membuat build gagal — Nuitka hanya memberi peringatan lalu tetap menghasilkan
 > <code>.exe</code> yang rusak. Karena itu build memakai path venv secara eksplisit.
 
-**Langkah 1** — install Nuitka ke venv proyek dan dependency npm:
+**Langkah 1** — install Nuitka ke venv proyek dan dependency bun:
 
 ```bash
 ./.venv/Scripts/python.exe -m pip install Nuitka
 ```
 
 ```bash
-npm ci
+bun ci
 ```
 
 **Langkah 2** — build engine dan installer sekaligus:
@@ -354,7 +354,7 @@ Skrip ini berhenti pada kesalahan pertama, dengan urutan:
    dihapus dulu). **Proses ini lama** — pandas dan numpy ikut dikompilasi.
 4. Menjalankan engine hasil build pada PDF sintetis untuk kelima alat, termasuk pratinjau
    dan penerapan nama. Modul yang tidak ter-bundle membuat build berhenti di sini.
-5. Membangun ulang renderer (`npm run build:renderer`) agar paket tidak memuat CSS/JS lama.
+5. Membangun ulang renderer (`bun run build:renderer`) agar paket tidak memuat CSS/JS lama.
 6. Menjalankan electron-builder: `app/` dikemas ke `app.asar` dan engine disalin ke
    `resources/engine/`.
 7. Memeriksa hasil: `app.asar` memuat renderer hasil build tanpa `app/renderer/src/`;
@@ -370,7 +370,7 @@ build sebelumnya):
 ./.venv/Scripts/python.exe build_release.py --app-only
 ```
 
-`npm run dist` hanya menjalankan electron-builder tanpa membangun renderer dan tanpa
+`bun run dist` hanya menjalankan electron-builder tanpa membangun renderer dan tanpa
 pemeriksaan di atas. Untuk rilis, selalu gunakan `build_release.py`.
 
 `version` di `package.json` adalah satu-satunya sumber nomor versi aplikasi, metadata
@@ -411,7 +411,7 @@ executable, dan installer. Gunakan format `MAJOR.MINOR.PATCH`, misalnya `3.0.0`.
 ### Menerbitkan versi berikutnya
 
 1. Ubah `version` di `package.json`, lalu jalankan semua tes di atas.
-2. Jalankan `build_release.py`, lalu uji hasil paket dengan `EXPCORE_APP=dist/win-unpacked/ExpCore.exe npm test`.
+2. Jalankan `build_release.py`, lalu uji hasil paket dengan `EXPCORE_APP=dist/win-unpacked/ExpCore.exe bun test`.
 3. Buat **draft release** GitHub dengan tag persis `v` + versi, misalnya `v3.0.0`.
 4. Unggah ketiga file dari `dist/`: `ExpCore-Setup-<versi>.exe`, `ExpCore-Setup-<versi>.exe.blockmap`,
    dan `latest.yml`. Tanpa `latest.yml`, aplikasi tidak menawarkan update.
@@ -454,7 +454,7 @@ Jalankan aplikasi langsung dari source. Kalau di sini jalan normal tetapi hasil 
 masalahnya ada di proses build, bukan di kode:
 
 ```bash
-npm start
+bun start
 ```
 
 ---
