@@ -23667,7 +23667,7 @@ cc1.exe: out of memory allocating 65536 bytes
     <option value="--assume-yes-for-downloads" />
     <option value="--windows-console-mode=force" />
     <option value="--windows-icon-from-ico=icon.ico" />
-    <option value="--company-name=Iyan App" />
+    <option value="--company-name=Iyan Sanjaya" />
     <option value="--product-name=ExpCore" />
     <option value="--file-description=ExpCore PDF engine" />
     <option value="--product-version=3.0.0" />

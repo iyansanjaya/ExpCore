@@ -68,7 +68,7 @@ def build_engine(version):
         sys.executable, "-m", "nuitka", "--mode=standalone", "--assume-yes-for-downloads",
         # Konsol tetap tersembunyi: Electron menjalankan engine dengan windowsHide.
         "--windows-console-mode=force", "--windows-icon-from-ico=icon.ico",
-        "--company-name=Iyan App", "--product-name=ExpCore", "--file-description=ExpCore PDF engine",
+        "--company-name=Iyan Sanjaya", "--product-name=ExpCore", "--file-description=ExpCore PDF engine",
         f"--product-version={version}", f"--file-version={version}",
         "--copyright=Copyright (c) 2026 Iyan Sanjaya", "expcore_engine.py",
     ], cwd=ROOT, check=True)

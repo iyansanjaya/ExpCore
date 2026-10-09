@@ -3,7 +3,7 @@
   "productName": "ExpCore",
   "version": "3.0.0",
   "description": "Toolkit PDF Coretax",
-  "author": "Iyan App",
+  "author": "Iyan Sanjaya",
   "license": "Apache-2.0",
   "private": true,
   "main": "app/main.js",

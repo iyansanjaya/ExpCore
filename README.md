@@ -410,9 +410,11 @@ executable, dan installer. Gunakan format `MAJOR.MINOR.PATCH`, misalnya `3.0.0`.
 
 ### Menerbitkan versi berikutnya
 
-1. Ubah `version` di `package.json`, lalu jalankan semua tes di atas.
+1. Ubah `version` di `package.json`, catat perubahannya di `CHANGELOG.md`, dan tulis catatan
+   rilis di `.github/release-notes/v<versi>.md`. Lalu jalankan semua tes di atas.
 2. Jalankan `build_release.py`, lalu uji hasil paket dengan `EXPCORE_APP=dist/win-unpacked/ExpCore.exe bun test`.
-3. Buat **draft release** GitHub dengan tag persis `v` + versi, misalnya `v3.0.0`.
+3. Buat **draft release** GitHub dengan tag persis `v` + versi, misalnya `v3.0.0`, dan isi
+   deskripsinya dari `.github/release-notes/v<versi>.md`.
 4. Unggah ketiga file dari `dist/`: `ExpCore-Setup-<versi>.exe`, `ExpCore-Setup-<versi>.exe.blockmap`,
    dan `latest.yml`. Tanpa `latest.yml`, aplikasi tidak menawarkan update.
 5. Publikasikan sebagai rilis stabil dan tandai **latest**.
@@ -482,6 +484,8 @@ ExpCore/
 │   └── update.test.js     # Alur update pada aplikasi hasil paket
 ├── test_expcore.py        # Parser, penamaan, ekspor, dan protokol engine
 ├── DESIGN.md              # Token visual, interaksi, dan arsitektur
+├── CHANGELOG.md           # Riwayat perubahan per versi
+├── .github/release-notes/ # Catatan rilis GitHub per versi
 ├── graphify-out/          # Graph pengetahuan proyek (graph.html, GRAPH_REPORT.md)
 ├── icon.ico               # Ikon aplikasi, engine, dan installer (16–256 px)
 ├── icon.svg               # Sumber desain ikon (sama dengan logo di header)
