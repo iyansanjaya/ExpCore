@@ -4,13 +4,15 @@
 import '@fontsource-variable/inter/wght.css';
 import { animate, inView, stagger } from 'motion';
 import {
-  ArrowRight, ArrowUpRight, ClipboardText, Copy, DocumentText, Download, Edit2, Eye, FilePdf, FolderOpen, Grid,
-  InfoCircle, Layers, Lock, Refresh, ShieldCheck, Sparkles, TickCircle,
+  ArrowRight, ArrowUpRight, Bank, Category, ChevronDown, ClipboardText, Copy, DocumentText, Download, Edit2, Eye,
+  FilePdf, FolderOpen, Grid, InfoCircle, Invoice, Layers, Lock, Receipt, ReceiptText, Refresh, ShieldCheck,
+  Sparkles, TickCircle,
 } from 'reicon';
 
 const ICONS = {
-  ArrowRight, ArrowUpRight, ClipboardText, Copy, DocumentText, Download, Edit2, Eye, FilePdf, FolderOpen, Grid,
-  InfoCircle, Layers, Lock, Refresh, ShieldCheck, Sparkles, TickCircle,
+  ArrowRight, ArrowUpRight, Bank, Category, ChevronDown, ClipboardText, Copy, DocumentText, Download, Edit2, Eye,
+  FilePdf, FolderOpen, Grid, InfoCircle, Invoice, Layers, Lock, Receipt, ReceiptText, Refresh, ShieldCheck,
+  Sparkles, TickCircle,
 };
 const api = window.expcore;
 const $ = (selector, root = document) => root.querySelector(selector);
@@ -50,11 +52,23 @@ const PREVIEWS = {
   rename: `
     <div class="rounded-xl border border-line bg-white px-3 py-2 text-[11px] text-ink-muted shadow-soft">2000000015.pdf</div>
     <div class="my-1.5 flex justify-center text-brand-500"><span class="grid size-5 place-items-center rounded-full bg-brand-100 text-[11px] font-bold">↓</span></div>
-    <div class="rounded-xl border border-brand-200 bg-white px-3 py-2 text-[11px] font-medium shadow-soft">Pemotong - Nomor - Masa - Sifat.pdf</div>
-    <div class="mt-2 text-center text-[10.5px] font-medium text-brand-700">Pratinjau dulu, terapkan kemudian</div>`,
+    <div class="rounded-xl border border-brand-200 bg-white px-3 py-2 text-[11px] font-medium shadow-soft">Nama - Nomor - Masa - Sifat.pdf</div>
+    <div class="mt-2 text-center text-[10.5px] font-medium text-brand-700">Nama pemotong atau dipotong · pratinjau dulu</div>`,
+  rekening: `
+    <div class="overflow-hidden rounded-xl border border-line bg-white text-[10.5px] shadow-soft">
+      <div class="grid grid-cols-[0.8fr_1fr_1fr] bg-lavender px-3 py-1.5 font-semibold text-brand-700"><span>Tanggal</span><span>Debit</span><span>Credit</span></div>
+      <div class="grid grid-cols-[0.8fr_1fr_1fr] px-3 py-1.5"><span class="h-2 w-2/3 self-center rounded-full bg-line"></span><span class="h-2 w-3/4 self-center rounded-full bg-rose-100"></span><span></span></div>
+      <div class="grid grid-cols-[0.8fr_1fr_1fr] px-3 py-1.5"><span class="h-2 w-2/3 self-center rounded-full bg-line"></span><span></span><span class="h-2 w-2/3 self-center rounded-full bg-emerald-100"></span></div>
+    </div>
+    <div class="mt-2.5 flex gap-2">
+      <span class="rounded-lg bg-white px-2 py-1 text-[10.5px] font-medium text-ink-soft shadow-soft">Saldo awal</span>
+      <span class="rounded-lg bg-white px-2 py-1 text-[10.5px] font-medium text-ink-soft shadow-soft">Mutasi CR/DB</span>
+      <span class="rounded-lg bg-white px-2 py-1 text-[10.5px] font-medium text-emerald-700 shadow-soft">Saldo akhir ✓</span>
+    </div>`,
 };
 
 const pages = { home: { page: $('#page-home'), title: 'Beranda', heading: $('#home-title') } };
+const menu = { trigger: $('#tools-trigger'), panel: $('#tools-menu') };
 const views = {};
 let modules = {};
 let current = 'home';
@@ -82,11 +96,62 @@ function reveal(elements, delay = 0) {
     { duration: 0.55, ease: EASE, delay: stagger(0.06, { startDelay: delay }) });
 }
 
+let indicatorTarget = '';
+
 function moveIndicator(smooth = true) {
-  const active = $(`.nav-item[data-page="${current}"]`);
-  if (!active) return;
+  // Halaman alat ditandai pada tombol Alat (judul alat aktif ikut tampil di tombolnya).
+  const active = current === 'home' ? $('.nav-item[data-page="home"]') : menu.trigger;
+  const target = `${active.offsetLeft}:${active.offsetWidth}`;
+  // ResizeObserver ikut terpicu saat lebar navigasi berubah karena label alat; bila tujuan sama,
+  // jangan potong pegas yang sedang berjalan dengan lompatan instan.
+  if (!smooth && target === indicatorTarget) return;
+  indicatorTarget = target;
+  // velocity 0: pegas tidak mewarisi kecepatan lompatan instan sebelumnya (pernah melebar hingga ribuan px).
   animate('#nav-indicator', { x: active.offsetLeft, width: active.offsetWidth },
-    smooth && !reduceMotion ? SPRING : { duration: 0 });
+    smooth && !reduceMotion ? { ...SPRING, velocity: 0 } : { duration: 0 });
+}
+
+const menuItems = () => $$('.menu-item', menu.panel);
+
+// focus: 'current' | 'first' | 'last' memindahkan fokus ke daftar (pembukaan lewat keyboard).
+function openMenu(focus = null) {
+  if (menu.panel.hidden) {
+    menu.panel.hidden = false;
+    menu.trigger.setAttribute('aria-expanded', 'true');
+    if (!reduceMotion) animate(menu.panel, { opacity: [0, 1], y: [-6, 0], scale: [0.98, 1] }, { duration: 0.18, ease: EASE });
+  }
+  const items = menuItems();
+  const target = { first: items[0], last: items.at(-1), current: items.find((item) => item.hasAttribute('aria-current')) ?? items[0] }[focus];
+  target?.focus();
+}
+
+function closeMenu(returnFocus = false) {
+  if (menu.panel.hidden) return;
+  menu.panel.hidden = true;
+  menu.trigger.setAttribute('aria-expanded', 'false');
+  if (returnFocus) menu.trigger.focus();
+}
+
+function setupMenu() {
+  // detail 0 = diaktifkan lewat keyboard (Enter/Space): fokus langsung ke alat aktif.
+  menu.trigger.addEventListener('click', (event) => (menu.panel.hidden ? openMenu(event.detail === 0 ? 'current' : null) : closeMenu()));
+  menu.trigger.addEventListener('keydown', (event) => {
+    if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+    event.preventDefault();
+    openMenu(event.key === 'ArrowDown' ? 'current' : 'last');
+  });
+  menu.panel.addEventListener('keydown', (event) => {
+    const items = menuItems();
+    const index = items.indexOf(document.activeElement);
+    const next = { ArrowDown: index + 1, ArrowUp: index - 1, Home: 0, End: items.length - 1 }[event.key];
+    if (next === undefined) return;
+    event.preventDefault();
+    items[(next + items.length) % items.length].focus();
+  });
+  // Tab keluar dari navigasi menutup daftar, seperti klik di luar.
+  $('#main-nav').addEventListener('focusout', (event) => {
+    if (!$('#main-nav').contains(event.relatedTarget)) closeMenu();
+  });
 }
 
 function navigate(key) {
@@ -94,10 +159,15 @@ function navigate(key) {
   const leaving = pages[current].page;
   const changed = current !== key;
   current = key;
-  for (const button of $$('.nav-item')) {
+  for (const button of $$('.nav-item, .menu-item')) {
     if (button.dataset.page === key) button.setAttribute('aria-current', 'page');
     else button.removeAttribute('aria-current');
   }
+  // Navigasi rata kiri: label alat hanya memanjangkan tombol Alat ke kanan, Beranda tidak bergeser.
+  const label = $('.current', menu.trigger);
+  label.textContent = key === 'home' ? '' : `· ${pages[key].title}`;
+  label.hidden = key === 'home';
+  menu.trigger.toggleAttribute('data-active', key !== 'home');
   for (const [name, entry] of Object.entries(pages)) entry.page.hidden = name !== key;
   moveIndicator(changed);
   if (views[key]?.logPending) scrollLogToEnd(views[key]);
@@ -143,13 +213,16 @@ function refreshControls() {
     view.browse.disabled = Boolean(busy);
     view.run.disabled = !ready;
     if (key === 'rename') view.apply.disabled = !(ready && view.previewReady);
+    for (const radio of view.sources) radio.disabled = Boolean(busy);
   }
 }
 
+// Satu pekerjaan sekaligus: titik pada tombol Alat terlihat walau menunya tertutup.
 function setBusyNav(key, isBusy) {
-  const nav = views[key].nav;
-  nav.setAttribute('aria-busy', String(isBusy));
-  $('.busy-dot', nav).hidden = !isBusy;
+  const item = views[key].nav;
+  item.setAttribute('aria-busy', String(isBusy));
+  $('.busy-dot', item).hidden = !isBusy;
+  $('.busy-dot', menu.trigger).hidden = !isBusy;
 }
 
 function folderChanged(key) {
@@ -162,6 +235,44 @@ function folderChanged(key) {
   view.open.disabled = true; // Hasil lama tidak berlaku untuk folder lain.
   view.previewReady = false;
   refreshControls();
+}
+
+// Pratinjau hanya berlaku untuk sumber nama yang dipakai saat itu (main juga menolak penerapan lain).
+function nameSourceChanged(key) {
+  const view = views[key];
+  view.previewReady = false;
+  if (view.input.value.trim()) {
+    setStatus(view, 'ready', 'SIAP DIPROSES');
+    view.summary.textContent = 'Sumber nama berubah. Jalankan pratinjau ulang sebelum menerapkan nama.';
+  }
+  refreshControls();
+}
+
+function buildNameSources(key, page, sources) {
+  const fieldset = $('.name-source', page);
+  fieldset.hidden = false;
+  return Object.entries(sources).map(([value, source], index) => {
+    const option = document.createElement('label');
+    option.className = 'source-option';
+    const radio = document.createElement('input');
+    Object.assign(radio, { type: 'radio', name: `name-source-${key}`, value, checked: index === 0, className: 'sr-only' });
+    radio.addEventListener('change', () => nameSourceChanged(key));
+    const text = document.createElement('span');
+    text.className = 'min-w-0';
+    const title = document.createElement('span');
+    title.className = 'block text-[13.5px] font-semibold text-ink';
+    title.textContent = source.title;
+    const detail = document.createElement('span');
+    detail.className = 'mt-0.5 block text-xs text-ink-muted';
+    detail.textContent = source.detail;
+    text.append(title, detail);
+    const dot = document.createElement('span');
+    dot.className = 'radio';
+    dot.setAttribute('aria-hidden', 'true');
+    option.append(radio, dot, text);
+    $('.options', fieldset).append(option);
+    return radio;
+  });
 }
 
 async function browse(key) {
@@ -259,20 +370,52 @@ function onUpdateEvent(data) {
   }
 }
 
+// Daftar grup di menu Alat, dibuat saat alat pertama grup tersebut ditambahkan (urutan MODULES).
+function menuList(group) {
+  const existing = $$('.menu-group', menu.panel).find((element) => element.dataset.group === group);
+  if (existing) return $('ul', existing);
+  const section = document.createElement('div');
+  section.className = 'menu-group';
+  section.dataset.group = group;
+  const label = document.createElement('p');
+  label.className = 'menu-label';
+  label.textContent = group;
+  label.setAttribute('aria-hidden', 'true');
+  const list = document.createElement('ul');
+  list.className = 'space-y-0.5';
+  list.setAttribute('aria-label', group);
+  section.append(label, list);
+  menu.panel.append(section);
+  return list;
+}
+
+function buildMenuItem(key, info, index) {
+  const item = document.createElement('button');
+  item.type = 'button';
+  item.className = 'menu-item';
+  item.dataset.page = key;
+  item.setAttribute('aria-keyshortcuts', `Alt+${index + 1}`);
+  item.innerHTML = `
+    <span class="menu-icon"><span data-icon="${info.icon}" class="size-[18px]"></span></span>
+    <span class="min-w-0 flex-1">
+      <span class="block truncate text-[13.5px] font-semibold text-ink" data-field="title"></span>
+      <span class="block truncate text-xs text-ink-muted" data-field="brief"></span>
+    </span>
+    <span class="busy-dot size-1.5 shrink-0 rounded-full bg-brand-600 animate-pulse-dot" aria-hidden="true" hidden></span>
+    <span class="menu-key" aria-hidden="true">Alt+${index + 1}</span>
+    <span data-icon="TickCircle" data-weight="Filled" class="menu-check size-[18px] shrink-0 text-brand-600"></span>`;
+  field(item, 'title').textContent = info.title;
+  field(item, 'brief').textContent = info.brief;
+  hydrateIcons(item);
+  const entry = document.createElement('li');
+  entry.append(item);
+  menuList(info.group).append(entry);
+  return item;
+}
+
 function buildTool(key, info, index) {
   const rename = key === 'rename';
-  const navButton = document.createElement('button');
-  navButton.type = 'button';
-  navButton.className = 'nav-item';
-  navButton.dataset.page = key;
-  navButton.setAttribute('aria-keyshortcuts', `Alt+${index + 1}`);
-  navButton.append(info.title);
-  const dot = document.createElement('span');
-  dot.className = 'busy-dot size-1.5 rounded-full bg-current animate-pulse-dot';
-  dot.hidden = true;
-  dot.setAttribute('aria-hidden', 'true');
-  navButton.append(dot);
-  $('#main-nav').append(navButton);
+  const navButton = buildMenuItem(key, info, index);
 
   const card = $('#tool-card').content.firstElementChild.cloneNode(true);
   for (const name of ['tag', 'number', 'title', 'detail']) field(card, name).textContent = info[name];
@@ -310,8 +453,10 @@ function buildTool(key, info, index) {
     open: $('.open', page),
     run: $('.run', page),
     apply: $('.apply', page),
+    sources: info.nameSources ? buildNameSources(key, page, info.nameSources) : [],
     previewReady: false,
   };
+  const nameSource = () => view.sources.find((radio) => radio.checked)?.value ?? null;
   view.run.innerHTML = `${rename ? 'Pratinjau nama' : 'Mulai ekstraksi'} <span data-icon="ArrowRight" class="size-4"></span>`;
   view.apply.hidden = !rename;
   hydrateIcons(page);
@@ -331,8 +476,8 @@ function buildTool(key, info, index) {
   }, { passive: false });
   view.input.addEventListener('input', () => folderChanged(key));
   view.browse.addEventListener('click', () => browse(key));
-  view.run.addEventListener('click', () => api.runJob(key, view.input.value, false));
-  view.apply.addEventListener('click', () => api.runJob(key, view.input.value, true));
+  view.run.addEventListener('click', () => api.runJob(key, view.input.value, false, nameSource()));
+  view.apply.addEventListener('click', () => api.runJob(key, view.input.value, true, nameSource()));
   view.open.addEventListener('click', () => api.openOutput(key));
   view.copy.addEventListener('click', async () => {
     await api.copyText(view.log.textContent);
@@ -347,11 +492,17 @@ function buildTool(key, info, index) {
 
 function onKeyDown(event) {
   const keys = Object.keys(pages);
-  if (event.altKey && !event.ctrlKey && /^Digit[0-9]$/.test(event.code)) {
+  if (event.key === 'Escape' && !menu.panel.hidden) {
+    event.preventDefault();
+    closeMenu($('#main-nav').contains(document.activeElement));
+  } else if (event.altKey && !event.ctrlKey && /^Digit[0-9]$/.test(event.code)) {
     const key = keys[Number(event.code.slice(5))];
     if (key) {
       event.preventDefault();
+      const fromMenu = menu.panel.contains(document.activeElement);
+      closeMenu();
       navigate(key);
+      if (fromMenu) pages[key].heading.focus();
     }
   } else if (event.ctrlKey && !event.altKey && event.code === 'KeyO' && views[current]) {
     event.preventDefault();
@@ -391,9 +542,18 @@ async function init() {
   $('#byline').textContent = `Versi ${info.version} · by Iyan Sanjaya`;
   Object.entries(modules).forEach(([key, module], index) => buildTool(key, module, index));
   revealSectionsInView();
+  setupMenu();
   document.addEventListener('click', (event) => {
     const target = event.target.closest('[data-page]');
-    if (target) navigate(target.dataset.page);
+    if (target) {
+      const fromMenu = Boolean(target.closest('#tools-menu'));
+      closeMenu();
+      navigate(target.dataset.page);
+      // Item menu yang dipilih ikut tersembunyi; fokus pindah ke judul halaman tujuan.
+      if (fromMenu) pages[target.dataset.page].heading.focus();
+    } else if (!event.target.closest('#main-nav')) {
+      closeMenu();
+    }
   });
   document.addEventListener('keydown', onKeyDown);
   $('#check-update').addEventListener('click', () => api.checkUpdate());

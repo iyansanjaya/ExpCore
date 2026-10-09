@@ -41,20 +41,25 @@ def test_engine_protocol():
         folder = Path(temp) / "Bupot Ünïcode — 2026 (uji)"
         write_all(folder / "sub")
         (folder / "rusak.pdf").write_bytes(b"corrupt")
+        single = "Selesai — 1 baris, 4 PDF dilewati."
         exports = {
-            "bupot": ("!Hasil_Rekap_Bupot.xlsx", {"Nomor Dokumen": "25004WOBY", "DPP (Rp)": 3700000}),
-            "bupot2024": ("!Hasil_Rekap_Bupot_2024.xlsx", {"Nomor Bukti Potong": "2000000001", "Tarif (%)": 2}),
-            "pm": ("Hasil_Pajak_Masukan.xlsx", {"NPWP Pembeli": "0012345678901234", "DPP": 3000000, "PPN": 360000}),
+            "bupot": ("!Hasil_Rekap_Bupot.xlsx", single, {"Nomor Dokumen": "25004WOBY", "DPP (Rp)": 3700000}),
+            "bupot2024": ("!Hasil_Rekap_Bupot_2024.xlsx", single, {"Nomor Bukti Potong": "2000000001", "Tarif (%)": 2}),
+            "pm": ("Hasil_Pajak_Masukan.xlsx", single,
+                   {"NPWP Pembeli": "0012345678901234", "DPP": 3000000, "PPN": 360000}),
+            "rekening": ("!Hasil_Rekap_Rekening_Koran.xlsx",
+                         "Selesai — 1 rekening koran, 5 transaksi, 0 perlu dicek, 4 PDF dilewati.",
+                         {"No. Rekening": "1234567890", "Mutasi CR": 3736425.01, "Hasil Cek": "SESUAI"}),
         }
-        for job, (output, expected) in exports.items():
+        for job, (output, summary, expected) in exports.items():
             code, events, stderr = run_engine(job, str(folder))
             assert code == 0, (job, events, stderr)
-            assert events[0] == {"event": "log", "message": "Memproses 4 file …"}, events[0]
+            assert events[0] == {"event": "log", "message": "Memproses 5 file …"}, events[0]
             progress = [e for e in events if e["event"] == "progress"]
-            assert progress == [{"event": "progress", "done": i, "total": 4} for i in range(4)], progress
+            assert progress == [{"event": "progress", "done": i, "total": 5} for i in range(5)], progress
             assert sum(e["event"] in ("done", "error") for e in events) == 1, events
             assert events[-1]["event"] == "done" and events[-1]["path"] == str(folder / output), events[-1]
-            assert events[-1]["summary"] == "Selesai — 1 baris, 3 PDF dilewati.", events[-1]
+            assert events[-1]["summary"] == summary, events[-1]
             values = sheet_row(events[-1]["path"])
             assert values["Folder Sumber"] == "sub", values
             for column, value in expected.items():
@@ -62,7 +67,8 @@ def test_engine_protocol():
 
         code, events, _ = run_engine("rename", str(folder))
         assert code == 0 and events[-1]["summary"] == (
-            "Pratinjau selesai — 1 siap/berhasil, 0 sudah sesuai, 2 perlu diperiksa, 1 gagal."), events[-1]
+            "Pratinjau selesai — 1 siap/berhasil, 0 sudah sesuai, 3 perlu diperiksa, 1 gagal."), events[-1]
+        assert events[0]["message"] == "Pratinjau: memeriksa 5 PDF … (nama dari Identitas Pemotong (C.3))", events[0]
         assert (folder / "sub" / "bppu.pdf").exists(), "Pratinjau tidak boleh mengubah nama file"
         code, events, _ = run_engine("rename", str(folder), "--apply")
         assert code == 0 and events[-1]["summary"].startswith("Penerapan selesai — 1 siap/berhasil"), events[-1]
@@ -70,6 +76,14 @@ def test_engine_protocol():
         assert Path(events[-1]["path"]).name.startswith("Log_Penamaan_Bupot_Penerapan_")
         code, events, _ = run_engine("rename", str(folder))
         assert "0 siap/berhasil, 1 sudah sesuai" in events[-1]["summary"], events[-1]
+        # Sumber nama A.2: pratinjau memakai nama wajib pajak yang dipotong, file tidak berubah.
+        code, events, _ = run_engine("rename", str(folder), "--nama", "penerima")
+        assert code == 0 and "1 siap/berhasil, 0 sudah sesuai" in events[-1]["summary"], events[-1]
+        with open(events[-1]["path"], encoding="utf-8-sig", newline="") as log:
+            ready = [row for row in csv.DictReader(log) if row["status"] == "SIAP"]
+        assert [(row["nama_baru"], row["sumber_nama"]) for row in ready] == [
+            ("MITRACOLL SARANA JAYA - 25004WOBY - 01-2025 - TIDAK FINAL - NORMAL.pdf", "Wajib Pajak yang Dipotong (A.2)")]
+        assert (folder / "sub" / BPPU_NAME).exists()
 
         # Kegagalan menulis hasil menjadi event error, bukan crash diam-diam.
         (folder / "!Hasil_Rekap_Bupot.xlsx").unlink()
@@ -83,10 +97,11 @@ def test_engine_protocol():
         for path, message in ((empty, "Tidak ada PDF di folder atau subfolder ini. Pilih folder lain."),
                               (Path(temp) / "tidak-ada", "Folder tidak ditemukan. Pilih folder yang tersedia.")):
             assert run_engine("pm", str(path))[:2] == (1, [{"event": "error", "message": message}])
-        for args in (("bupot", str(folder), "--apply"), ("lainnya", str(folder)), ("bupot",)):
+        for args in (("bupot", str(folder), "--apply"), ("lainnya", str(folder)), ("bupot",),
+                     ("rekening", str(folder), "--nama", "penerima"), ("rename", str(folder), "--nama", "C.3")):
             code, events, stderr = run_engine(*args)
             assert (code, events) == (2, []) and "usage" in stderr, (args, code, events)
-    print("Engine: protokol JSON, tiga ekspor, penamaan, Unicode, PDF rusak dan argumen OK")
+    print("Engine: protokol JSON, empat ekspor, penamaan (C.3/A.2), Unicode, PDF rusak dan argumen OK")
 
 
 def test_batch_exports():
@@ -153,83 +168,238 @@ C.4 TANGGAL : 31 Januari 2026"""
     for incomplete in (blank, absent):
         assert ExpCore._extract_rename_bupot_data(incomplete)["NAMA_PENERIMA"] == ""
 
-    expected_name = "VOLANS - 26007GORO - 01-2026 - FINAL - NORMAL.pdf"
     without_pemotong = text[:text.index("C.3")]
     blank_pemotong = text.replace(": VOLANS", ":")
     wrapped_pemotong = text.replace(": VOLANS", ":\nVOLANS")
-    for pdf_text, complete in ((text, True), (wrapped, True),
-                               (wrapped_pemotong, True), (without_pemotong, False),
-                               (blank_pemotong, False), (blank, True), (absent, True)):
-        for apply_changes in (False, True):
-            with tempfile.TemporaryDirectory() as folder:
-                original = os.path.join(folder, "original.pdf")
-                with open(original, "wb") as pdf_file:
-                    pdf_file.write(b"test PDF placeholder")
-                app = SimpleNamespace(
-                    progress=Mock(), log=Mock(),
-                    _extract_rename_bupot_data=ExpCore._extract_rename_bupot_data,
-                    _safe_filename=ExpCore._safe_filename,
-                    _unique_filename=ExpCore._unique_filename,
-                )
-                pdf = SimpleNamespace(pages=[SimpleNamespace(extract_text=lambda: pdf_text)])
-                with patch("ExpCore.pdfplumber.open") as open_pdf:
-                    open_pdf.return_value.__enter__.return_value = pdf
-                    result_path, summary = ExpCore.process_rename_bupot(app, folder, apply_changes=apply_changes)
-                    assert Path(result_path).is_file()
-                    assert "selesai" in summary
-
-                csv_name, = [name for name in os.listdir(folder) if name.endswith(".csv")]
-                with open(os.path.join(folder, csv_name), encoding="utf-8-sig", newline="") as log:
-                    row, = list(csv.DictReader(log))
-                assert row["NAMA_PEMOTONG"] == ("VOLANS" if complete else "")
-                assert row["NAMA_PENERIMA"] == ("" if pdf_text in (blank, absent) else "PLAZA LIFESTYLE PRIMA"), row
-                if complete:
-                    assert row["nama_baru"] == expected_name, row
-                    assert row["status"] == ("BERHASIL" if apply_changes else "SIAP"), row
-                    assert row["data_tidak_lengkap"] == "", row
-                else:
-                    assert row["status"] == ("DILEWATI" if apply_changes else "PERLU CEK"), row
-                    assert row["data_tidak_lengkap"] == "NAMA_PEMOTONG", row
-                assert os.path.exists(original) == (not (complete and apply_changes))
-                assert os.path.exists(os.path.join(folder, expected_name)) == (complete and apply_changes)
-
-    print("Rename Bupot memakai C.3 (pratinjau dan penerapan): ok")
-
-
-def test_bupot2024_pdf_samples():
-    """Regresi opsional untuk kumpulan PDF feedback lokal (tidak mengubah file)."""
-    sample_root = Path(__file__).parent / "contoh-pdf"
-    previously_skipped = {
-        "JAN": {"2000000119.pdf", "2000000632.pdf", "2000000635.pdf"},
-        "FEB": {"2000000015 (2).pdf", "2000000022.pdf", "2000000024.pdf",
-                "2000000247.pdf", "2000000360.pdf", "2000000485.pdf"},
+    # Sumber nama -> (field, label CSV, nama file, teks yang nama sumbernya kosong). Tanpa fallback:
+    # A.2 kosong tidak boleh diganti C.3, dan sebaliknya.
+    sources = {
+        "pemotong": ("NAMA_PEMOTONG", "Identitas Pemotong (C.3)", "VOLANS - 26007GORO - 01-2026 - FINAL - NORMAL.pdf",
+                     (without_pemotong, blank_pemotong)),
+        "penerima": ("NAMA_PENERIMA", "Wajib Pajak yang Dipotong (A.2)",
+                     "PLAZA LIFESTYLE PRIMA - 26007GORO - 01-2026 - FINAL - NORMAL.pdf", (blank, absent)),
     }
-    for month, expected_count in (("JAN", 75), ("FEB", 76)):
-        files = sorted((sample_root / month).glob("*.pdf"))
-        assert len(files) == expected_count, (month, len(files), expected_count)
-        recovered = set()
-        failures = []
-        row_count = 0
-        for path in files:
-            with pdfplumber.open(path) as pdf:
-                text = "\n".join(page.extract_text() or "" for page in pdf.pages)
-            rows = ExpCore._extract_bupot2024_rows(text)
-            row_count += len(rows)
-            if len(rows) != 1:
-                failures.append((path.name, len(rows)))
-            elif path.name in previously_skipped[month]:
-                assert rows[0]["Tarif (%)"] == 2.0, (path.name, rows[0])
-                recovered.add(path.name)
-        assert not failures, (month, failures)
-        assert recovered == previously_skipped[month], (month, recovered)
-        assert row_count == expected_count, (month, row_count)
-        print(f"PDF contoh {month}: {len(files)} PDF -> {row_count} baris, "
-              f"{len(recovered)} kasus feedback terbaca", flush=True)
+    for source, (field, label, expected_name, incomplete) in sources.items():
+        for pdf_text in (text, wrapped, wrapped_pemotong, without_pemotong, blank_pemotong, blank, absent):
+            complete = pdf_text not in incomplete
+            for apply_changes in (False, True):
+                with tempfile.TemporaryDirectory() as folder:
+                    original = os.path.join(folder, "original.pdf")
+                    with open(original, "wb") as pdf_file:
+                        pdf_file.write(b"test PDF placeholder")
+                    app = SimpleNamespace(
+                        progress=Mock(), log=Mock(),
+                        _extract_rename_bupot_data=ExpCore._extract_rename_bupot_data,
+                        _safe_filename=ExpCore._safe_filename,
+                        _unique_filename=ExpCore._unique_filename,
+                    )
+                    pdf = SimpleNamespace(pages=[SimpleNamespace(extract_text=lambda: pdf_text)])
+                    with patch("ExpCore.pdfplumber.open") as open_pdf:
+                        open_pdf.return_value.__enter__.return_value = pdf
+                        result_path, summary = ExpCore.process_rename_bupot(
+                            app, folder, apply_changes=apply_changes, name_source=source)
+                        assert Path(result_path).is_file()
+                        assert "selesai" in summary
+                    assert label in app.log.call_args_list[0].args[0], app.log.call_args_list[0]
+
+                    csv_name, = [name for name in os.listdir(folder) if name.endswith(".csv")]
+                    with open(os.path.join(folder, csv_name), encoding="utf-8-sig", newline="") as log:
+                        row, = list(csv.DictReader(log))
+                    assert row["sumber_nama"] == label, row
+                    assert row["NAMA_PEMOTONG"] == ("" if pdf_text in (without_pemotong, blank_pemotong) else "VOLANS")
+                    assert row["NAMA_PENERIMA"] == ("" if pdf_text in (blank, absent) else "PLAZA LIFESTYLE PRIMA"), row
+                    if complete:
+                        assert row["nama_baru"] == expected_name, (source, row)
+                        assert row["status"] == ("BERHASIL" if apply_changes else "SIAP"), row
+                        assert row["data_tidak_lengkap"] == "", row
+                    else:
+                        assert row["status"] == ("DILEWATI" if apply_changes else "PERLU CEK"), row
+                        assert row["data_tidak_lengkap"] == field, row
+                    assert os.path.exists(original) == (not (complete and apply_changes))
+                    assert os.path.exists(os.path.join(folder, expected_name)) == (complete and apply_changes)
+
+    try:
+        ExpCore.process_rename_bupot(SimpleNamespace(), ".", name_source="C.3")
+        raise AssertionError("sumber nama tidak dikenal harus ditolak")
+    except ValueError as error:
+        assert "Sumber nama tidak dikenal" in str(error)
+
+    print("Rename Bupot: sumber nama C.3 dan A.2 (pratinjau dan penerapan, tanpa fallback): ok")
+
+
+def read_rekening(path):
+    with pdfplumber.open(path) as pdf:
+        return ExpCore._extract_rekening_koran(pdf.pages)
+
+
+def test_rekening_koran():
+    """e-Statement BCA: kolom dari posisi x, debit bertanda DB, ringkasan terpisah dan dicocokkan."""
+    from datetime import datetime
+    from decimal import Decimal
+
+    from tests.fixtures import REKENING_LINES, REKENING_SUMMARY, write_rekening
+
+    with tempfile.TemporaryDirectory() as temp:
+        temp = Path(temp)
+
+        def variant(name, **options):
+            path = temp / f"{name}.pdf"
+            write_rekening(path, **options)
+            return read_rekening(path)
+
+        data = variant("asli")
+        assert {k: data[k] for k in ("jenis", "norek", "nama", "periode", "mata_uang", "catatan")} == {
+            "jenis": "REKENING GIRO", "norek": "1234567890", "nama": "PT CONTOH SEJAHTERA",
+            "periode": "JANUARI 2025", "mata_uang": "IDR", "catatan": []}, data
+        D = Decimal
+        assert data["transaksi"] == [
+            {"tanggal": datetime(2025, 1, 2), "keterangan": "SETORAN TUNAI", "cbg": "0473",
+             "debit": None, "kredit": D("2500000.00"), "saldo": None},
+            {"tanggal": datetime(2025, 1, 2), "keterangan": "TRSF E-BANKING DB 0201/FTSCY/WS95051 750000.00 BUDI SANTOSO",
+             "cbg": "", "debit": D("750000.00"), "kredit": None, "saldo": D("2750000.00")},
+            # Keterangan berlanjut ke halaman 2 tetap milik transaksi yang sama.
+            {"tanggal": datetime(2025, 1, 3), "keterangan": "TRSF E-BANKING CR 0301/FTSCY/WS95031 1234567.89 PT MITRA UJI",
+             "cbg": "", "debit": None, "kredit": D("1234567.89"), "saldo": D("3984567.89")},
+            {"tanggal": datetime(2025, 1, 31), "keterangan": "BUNGA", "cbg": "",
+             "debit": None, "kredit": D("1857.12"), "saldo": None},
+            {"tanggal": datetime(2025, 1, 31), "keterangan": "PAJAK BUNGA", "cbg": "",
+             "debit": D("371.42"), "kredit": None, "saldo": D("3986053.59")},
+        ], data["transaksi"]
+        assert data["ringkasan"] == {"SALDO AWAL": (D("1000000.00"), None), "MUTASI CR": (D("3736425.01"), 3),
+                                     "MUTASI DB": (D("750371.42"), 2), "SALDO AKHIR": (D("3986053.59"), None)}
+
+        # Mutasi bulan sebelumnya pada periode Januari milik tahun sebelumnya.
+        rollover = [line if line is None or line[0] != "02/01" or line[1] != "SETORAN TUNAI"
+                    else ("31/12", *line[1:]) for line in REKENING_LINES]
+        data = variant("tahun", lines=rollover)
+        assert data["transaksi"][0]["tanggal"] == datetime(2024, 12, 31) and data["catatan"] == [], data
+
+        # Setiap ketidakcocokan tercatat; tidak ada yang lolos sebagai SESUAI.
+        no_db = [line if line is None or line[1] != "PAJAK BUNGA" else (*line[:5], "", line[6])
+                 for line in REKENING_LINES]
+        wrong_total = [row if row[0] != "MUTASI CR" else ("MUTASI CR", "3,736,425.00", "3") for row in REKENING_SUMMARY]
+        odd_saldo = [line if line is None or line[1] != "PAJAK BUNGA" else (*line[:6], "-3,986,053.59")
+                     for line in REKENING_LINES]
+        for name, options, expected in (
+            ("tanpa-db", {"lines": no_db}, ["Kredit terbaca 3,736,796.43 dari 4 transaksi, ringkasan PDF "
+                                            "3,736,425.01 dari 3.", "Debit terbaca 750,000.00 dari 1 transaksi, "
+                                            "ringkasan PDF 750,371.42 dari 2.",
+                                            "31/01: saldo PDF 3,986,053.59, hasil hitung 3,986,796.43."]),
+            ("total", {"summary": wrong_total}, ["Kredit terbaca 3,736,425.01 dari 3 transaksi, ringkasan PDF "
+                                                 "3,736,425.00 dari 3.", "Ringkasan PDF tidak seimbang: saldo awal "
+                                                 "+ mutasi CR − mutasi DB ≠ saldo akhir."]),
+            ("tanpa-ringkasan", {"summary": []}, ["Ringkasan saldo dan mutasi di akhir PDF tidak lengkap."]),
+            ("halaman", {"total_pages": 3}, ["PDF hanya berisi 2 dari 3 halaman."]),
+            ("saldo-aneh", {"lines": odd_saldo}, ["Halaman 2: teks tak dikenal di kolom tanggal/angka: -3,986,053.59"]),
+        ):
+            assert variant(name, **options)["catatan"] == expected, (name, variant(name, **options)["catatan"])
+
+        # PDF lain (bukan e-Statement BCA) dilewati.
+        write_all(temp / "lain")
+        for name in ("bppu", "bpbs", "faktur"):
+            assert read_rekening(temp / "lain" / f"{name}.pdf") is None, name
+
+        # Rekap folder: Ringkasan + sheet per PDF urut rekening/periode, PDF lain & rusak dilewati.
+        folder = temp / "Rekening Ünïcode"
+        write_rekening(folder / "b" / "feb.pdf", periode="FEBRUARI 2025")
+        write_rekening(folder / "a" / "jan.pdf")
+        write_rekening(folder / "a" / "jan salinan.pdf")
+        write_rekening(folder / "tahapan.pdf", title="REKENING TAHAPAN", summary=wrong_total)
+        write_all(folder / "lain")
+        (folder / "lain" / "rekening.pdf").unlink()
+        (folder / "rusak.pdf").write_bytes(b"corrupt")
+        app = ExpCore(log=Mock(), progress=Mock())
+        output, summary = app.process_rekening_koran(str(folder))
+        assert summary == "Selesai — 4 rekening koran, 20 transaksi, 1 perlu dicek, 4 PDF dilewati.", summary
+        logs = [call.args[0] for call in app.log.call_args_list]
+        assert ("PERINGATAN: REKENING GIRO 1234567890 periode 01-2025 muncul di 2 PDF: jan salinan.pdf, jan.pdf"
+                in logs), logs
+        assert "DILEWATI: lain\\faktur.pdf — bukan e-Statement Rekening Giro/Tahapan BCA." in logs, logs
+
+        book = load_workbook(output)
+        try:
+            assert book.sheetnames == ["Ringkasan", "Giro 1234567890 2025-01", "Giro 1234567890 2025-01 (2)",
+                                       "Giro 1234567890 2025-02", "Tahapan 1234567890 2025-01"], book.sheetnames
+            overview = [[cell.value for cell in row] for row in book["Ringkasan"].iter_rows()]
+            assert overview[0][:8] == ["No", "Sheet", "Jenis Rekening", "No. Rekening", "Nama", "Periode",
+                                       "Mata Uang", "Saldo Awal"], overview[0]
+            assert overview[1] == [1, "Giro 1234567890 2025-01", "REKENING GIRO", "1234567890", "PT CONTOH SEJAHTERA",
+                                   "JANUARI 2025", "IDR", 1000000, 3736425.01, 3, 750371.42, 2, 3986053.59, 5,
+                                   "SESUAI", None, "a", "jan salinan.pdf"], overview[1]
+            assert [row[14] for row in overview[1:]] == ["SESUAI", "SESUAI", "SESUAI", "PERLU CEK"]
+            assert overview[4][15].startswith("Kredit terbaca 3,736,425.01 dari 3 transaksi"), overview[4]
+            assert book["Ringkasan"]["B2"].hyperlink.location == "'Giro 1234567890 2025-01'!A1"
+
+            sheet = book["Giro 1234567890 2025-02"]
+            table = [[cell.value for cell in row[:6]] for row in sheet.iter_rows(max_row=6)]
+            assert table[0] == ["TANGGAL", "KETERANGAN", "CBG", "DEBIT", "CREDIT", "SALDO"]
+            assert table[1] == [datetime(2025, 1, 2), "SETORAN TUNAI", "0473", None, 2500000, None], table[1]
+            assert table[5] == [datetime(2025, 1, 31), "PAJAK BUNGA", None, 371.42, None, 3986053.59], table[5]
+            assert sheet.max_row == 16 and sheet["A7"].value is None, "ringkasan tidak boleh di bawah tabel"
+            assert (sheet["A2"].number_format, sheet["C2"].number_format, sheet["D3"].number_format) == (
+                "dd/mm/yyyy", "@", "#,##0.00")
+            assert sheet.freeze_panes == "A2" and sheet.auto_filter.ref == "A1:F6"
+            panel = [[cell.value for cell in row] for row in sheet.iter_rows(min_row=9, max_row=16, min_col=8, max_col=10)]
+            assert panel == [["RINGKASAN PDF", "NILAI", "TRANSAKSI"], ["SALDO AWAL", 1000000, None],
+                             ["MUTASI CR", 3736425.01, 3], ["MUTASI DB", 750371.42, 2],
+                             ["SALDO AKHIR", 3986053.59, None], [None, None, None],
+                             ["HASIL CEK", None, None], ["SESUAI", None, None]], panel
+            assert sheet["I3"].value == "1234567890" and sheet["I5"].value == "FEBRUARI 2025"
+            flagged = book["Tahapan 1234567890 2025-01"]
+            assert flagged["H16"].value == "PERLU CEK" and flagged["H17"].value.startswith("• Kredit terbaca")
+        finally:
+            book.close()
+
+        # Nama sheet maks. 31 karakter: jenis rekening yang dipotong, nomor dan periode tetap utuh.
+        long_title = temp / "judul panjang"
+        write_rekening(long_title / "x.pdf", title="REKENING TAHAPAN XPRESI PLUS")
+        book = load_workbook(ExpCore(log=Mock(), progress=Mock()).process_rekening_koran(str(long_title))[0])
+        assert book.sheetnames == ["Ringkasan", "Tahapan Xpre 1234567890 2025-01"], book.sheetnames
+        book.close()
+
+        empty = temp / "bukan-rekening"
+        write_all(empty)
+        (empty / "rekening.pdf").unlink()
+        assert ExpCore(log=Mock(), progress=Mock()).process_rekening_koran(str(empty))[0] is None
+    print("Rekening koran: kolom posisi, debit DB, lintas halaman, cek ringkasan & saldo, Excel: ok")
+
+
+def test_pdf_samples():
+    """Regresi opsional pada PDF contoh lokal di contoh-pdf/ (PDF asli tidak diubah)."""
+    import shutil
+
+    root = Path(__file__).parent / "contoh-pdf"
+
+    def text(path):
+        with pdfplumber.open(path) as pdf:
+            return "\n".join(page.extract_text() or "" for page in pdf.pages)
+
+    assert len(ExpCore._extract_bupot2024_rows(text(root / "BUPOT 2024" / "BUPOT 2024.pdf"))) == 1
+    bupot = root / "BUPOT 2026" / "BUPOT 2026.pdf"
+    assert len(ExpCore._extract_bupot_rows(text(bupot))) == 1
+    with tempfile.TemporaryDirectory() as folder:
+        shutil.copy(bupot, folder)
+        for source, name in (("pemotong", "ADIRA DINAMIKA MULTI FINANCE TBK"), ("penerima", "MITRACOLL SARANA JAYA")):
+            log_path, _ = ExpCore().process_rename_bupot(folder, name_source=source)
+            with open(log_path, encoding="utf-8-sig", newline="") as log:
+                row, = list(csv.DictReader(log))
+            assert row["nama_baru"] == f"{name} - 2507UMKHM - 12-2025 - TIDAK FINAL - NORMAL.pdf", row
+    print("PDF contoh Bupot 2024/2026 (nama C.3 dan A.2): ok", flush=True)
+
+    # Jumlah transaksi per bulan; semua bulan harus SESUAI dan saldo akhir = saldo awal bulan berikutnya.
+    for folder, counts in (("Rekening Giro", [28, 29, 20]), ("Rekening Tahapan", [81, 105, 101])):
+        statements = [read_rekening(path) for path in sorted((root / folder).glob("*.pdf"))]
+        assert [len(s["transaksi"]) for s in statements] == counts, (folder, [len(s["transaksi"]) for s in statements])
+        assert all(not s["catatan"] for s in statements), [s["catatan"] for s in statements]
+        for before, after in zip(statements, statements[1:]):
+            assert before["ringkasan"]["SALDO AKHIR"][0] == after["ringkasan"]["SALDO AWAL"][0], folder
+        print(f"PDF contoh {folder}: {len(statements)} bulan, {sum(counts)} transaksi, semua SESUAI", flush=True)
 
 
 def main():
     test_batch_exports()
     test_rename_pemotong()
+    test_rekening_koran()
     test_engine_protocol()
     text = """2505Z0UR6 10-2025 TIDAK FINAL PEMBETULAN KE-2
 C.3 NAMA PEMOTONG : PT CONTOH: ABADI
@@ -401,4 +571,4 @@ Sesuai dengan ketentuan yang berlaku di, Direktorat Jenderal pajak mengatur bahw
 if __name__ == "__main__":
     main()
     if "--pdf-samples" in sys.argv:
-        test_bupot2024_pdf_samples()
+        test_pdf_samples()

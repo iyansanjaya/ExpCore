@@ -17,19 +17,30 @@
       </span>
       <span class="text-[17px] font-semibold tracking-tight">ExpCore</span>
     </div>
-    <nav id="main-nav" aria-label="Navigasi utama"
-         class="relative mx-auto flex items-center gap-0.5 rounded-full border border-line bg-white p-1 shadow-soft">
-      <span id="nav-indicator" aria-hidden="true" class="absolute left-0 top-1 h-[calc(100%-0.5rem)] w-0 rounded-full bg-brand-600 shadow-brand"></span>
-      <button type="button" class="nav-item" data-page="home" aria-keyshortcuts="Alt+0">Beranda</button>
+    <nav id="main-nav" aria-label="Navigasi utama" class="relative ml-4 mr-auto">
+      <!-- Pill memotong (overflow) indikator yang sedang meluncur; panel menu berada di luarnya agar tidak ikut terpotong. -->
+      <div class="nav-pill relative flex items-center gap-0.5 overflow-hidden rounded-full border border-line bg-white p-1 shadow-soft">
+        <span id="nav-indicator" aria-hidden="true" class="absolute left-0 top-1 h-[calc(100%-0.5rem)] w-0 rounded-full bg-brand-600 shadow-brand"></span>
+        <button type="button" class="nav-item" data-page="home" aria-keyshortcuts="Alt+0">Beranda</button>
+        <!-- Pola disclosure: tombol + daftar tombol alat (bukan role menu), diisi app.js dari MODULES. -->
+        <button type="button" id="tools-trigger" class="nav-item group" aria-expanded="false" aria-controls="tools-menu">
+          <span data-icon="Category" class="size-4"></span>
+          <span>Alat</span><span class="current" hidden></span>
+          <span class="busy-dot size-1.5 rounded-full bg-current animate-pulse-dot" aria-hidden="true" hidden></span>
+          <span data-icon="ChevronDown" class="size-3.5 transition-transform duration-200 group-aria-expanded:rotate-180"></span>
+        </button>
+      </div>
+      <div id="tools-menu" hidden
+           class="absolute left-0 top-[calc(100%+10px)] w-[360px] rounded-2xl border border-line bg-white p-2 shadow-float"></div>
     </nav>
     <div class="header-actions flex shrink-0 items-center gap-2">
       <button type="button" id="check-update" class="btn-ghost h-9 px-3" aria-label="Periksa update">
         <span data-icon="Refresh" class="size-4"></span>
-        <span class="label max-[1119px]:hidden">Periksa update</span>
+        <span class="label">Periksa update</span>
       </button>
       <span class="privacy-badge inline-flex h-9 items-center gap-1.5 rounded-full bg-lavender px-3 text-xs font-semibold text-brand-700" title="PDF diproses di perangkat ini, tanpa unggah">
         <span data-icon="ShieldCheck" data-weight="Filled" class="size-4"></span>
-        <span class="label max-[1119px]:hidden">Lokal &amp; privat</span>
+        <span class="label">Lokal &amp; privat</span>
       </span>
     </div>
   </header>
@@ -60,7 +71,7 @@
               Dokumen pajak rapi,<br>selesai lebih cepat.
             </h1>
             <p data-reveal class="lead mx-auto mt-4 max-w-xl text-[15px] leading-relaxed text-ink-soft">
-              Ekstrak bukti potong dan faktur pajak ke Excel, lalu beri nama PDF secara otomatis.
+              Ekstrak bukti potong, faktur pajak, dan rekening koran ke Excel, lalu beri nama PDF secara otomatis.
               Semua diproses di perangkat Anda.
             </p>
             <div data-reveal class="mt-7 flex items-center justify-center gap-3">
@@ -106,7 +117,7 @@
                   <span class="text-[12.5px] font-medium">Log_Penamaan_Bupot.csv</span>
                 </div>
                 <div class="mt-2 px-3 py-1.5 text-[11.5px] leading-relaxed text-ink-soft">
-                  2000000015.pdf<br><span class="font-medium text-ink">→ Pemotong - Nomor - Masa.pdf</span>
+                  2000000015.pdf<br><span class="font-medium text-ink">→ Nama - Nomor - Masa.pdf</span>
                 </div>
               </div>
             </div>
@@ -122,7 +133,7 @@
 
         <section class="tools-section mx-auto max-w-[1040px] px-8 pt-16" aria-labelledby="tools-title">
           <div data-reveal class="flex items-end justify-between gap-8">
-            <h2 id="tools-title" class="text-[30px] font-medium leading-tight tracking-[-0.03em]">Empat alat untuk<br>pekerjaan pajak rutin</h2>
+            <h2 id="tools-title" class="text-[30px] font-medium leading-tight tracking-[-0.03em]">Lima alat untuk<br>pekerjaan pajak rutin</h2>
             <p class="max-w-xs text-right text-[13px] leading-relaxed text-ink-muted">Pilih alat sesuai formulir. PDF yang tidak cocok dilewati dan dicatat, dokumen lain tetap diproses.</p>
           </div>
           <div class="tool-cards mt-8 grid grid-cols-2 gap-5" id="tool-cards"></div>
@@ -243,6 +254,10 @@
                 <span data-icon="FolderOpen" class="size-4.5 text-brand-600"></span>Pilih folder
               </button>
             </div>
+            <fieldset class="name-source mt-5" hidden>
+              <legend class="text-xs font-medium text-ink-muted">Ambil nama file dari</legend>
+              <div class="options mt-2 grid grid-cols-2 gap-3"></div>
+            </fieldset>
             <p class="hint mt-3.5 flex gap-2 text-[13px] leading-relaxed text-ink-soft">
               <span data-icon="InfoCircle" class="mt-0.5 size-4 shrink-0 text-brand-500"></span><span data-field="hint"></span>
             </p>

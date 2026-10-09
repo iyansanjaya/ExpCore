@@ -125,16 +125,18 @@ describe('Pembaruan aplikasi terpasang', { skip: !SOURCE && 'EXPCORE_APP belum d
     assert.ok(!server.requests.some((url) => url.includes('.exe')), 'tidak mengunduh tanpa persetujuan');
   });
 
-  it('pemeriksaan manual: versi terbaru, installer belum siap, dan offline', async () => {
+  it('pemeriksaan manual: versi terbaru, belum ada latest.yml, dan offline', async () => {
     server.mode = 'current';
     let dialog = await manualCheck();
     assert.equal(dialog.detail, 'Anda memakai ExpCore 3.0.0.\nTidak ada versi stabil yang lebih baru.');
     assert.equal(await page.isHidden('#update-banner'), true);
 
+    // Rilis tanpa latest.yml (mis. v2.x lama di GitHub) bukan gangguan: cukup belum ada pembaruan.
     server.mode = 'missing';
     dialog = await manualCheck();
-    assert.equal(dialog.title, 'Pembaruan belum dapat diperiksa');
-    assert.match(dialog.detail, /^Versi baru sudah tercatat, tetapi installernya belum siap\./);
+    assert.deepEqual([dialog.type, dialog.title, dialog.detail],
+      ['info', 'Pembaruan ExpCore', 'Anda memakai ExpCore 3.0.0.\nBelum ada pembaruan yang siap dipasang.']);
+    assert.equal(await page.isHidden('#update-banner'), true);
 
     server.mode = 'down';
     dialog = await manualCheck();

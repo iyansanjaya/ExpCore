@@ -15,10 +15,13 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 ENGINE_DIST = ROOT / "expcore_engine.dist"
 ELECTRON_BUILDER = ROOT / "node_modules" / "electron-builder" / "cli.js"
+SINGLE_ROW = "Selesai — 1 baris, 3 PDF dilewati."
 EXPORTS = {
-    "bupot": "!Hasil_Rekap_Bupot.xlsx",
-    "bupot2024": "!Hasil_Rekap_Bupot_2024.xlsx",
-    "pm": "Hasil_Pajak_Masukan.xlsx",
+    "bupot": ("!Hasil_Rekap_Bupot.xlsx", SINGLE_ROW),
+    "bupot2024": ("!Hasil_Rekap_Bupot_2024.xlsx", SINGLE_ROW),
+    "pm": ("Hasil_Pajak_Masukan.xlsx", SINGLE_ROW),
+    "rekening": ("!Hasil_Rekap_Rekening_Koran.xlsx",
+                 "Selesai — 1 rekening koran, 5 transaksi, 0 perlu dicek, 3 PDF dilewati."),
 }
 
 
@@ -40,18 +43,19 @@ def run_engine(engine, *args):
 
 
 def check_engine(engine):
-    """Keempat pekerjaan pada PDF sintetis: import lazy (mis. writer Excel) ikut teruji."""
+    """Kelima pekerjaan pada PDF sintetis: import lazy (mis. writer Excel) ikut teruji."""
     from tests.fixtures import BPPU_NAME, write_all
 
     with tempfile.TemporaryDirectory() as temp:
         folder = Path(temp) / "uji build"
         write_all(folder)
-        for job, output in EXPORTS.items():
+        for job, (output, summary) in EXPORTS.items():
             done = run_engine(engine, job, str(folder))
-            if done["path"] != str(folder / output) or done["summary"] != "Selesai — 1 baris, 2 PDF dilewati.":
+            if done["path"] != str(folder / output) or done["summary"] != summary:
                 raise RuntimeError(f"Hasil {job} tidak sesuai: {done}")
-        run_engine(engine, "rename", str(folder))
-        run_engine(engine, "rename", str(folder), "--apply")
+        run_engine(engine, "rename", str(folder), "--nama", "penerima")
+        run_engine(engine, "rename", str(folder), "--nama", "pemotong")
+        run_engine(engine, "rename", str(folder), "--nama", "pemotong", "--apply")
         if not (folder / BPPU_NAME).is_file():
             raise RuntimeError("Penamaan pada engine hasil build tidak berjalan.")
 

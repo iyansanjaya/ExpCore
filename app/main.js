@@ -7,9 +7,11 @@ const { runEngine } = require('./engine');
 
 // Harus sama dengan build.appId di package.json: shortcut installer memakai AUMID ini.
 const APP_ID = 'iyansanjaya.expcore.1.0';
+// Urutan = urutan menu, kartu beranda, dan shortcut Alt+1..; alat dikelompokkan per `group` di menu Alat.
 const MODULES = {
   bupot: {
     title: 'Bukti Potong 2026', tag: 'CORETAX', number: '01',
+    group: 'Ekstraksi ke Excel', icon: 'ReceiptText', brief: 'BPPU Coretax',
     description: 'Dari bukti potong ke rekap Excel yang siap digunakan.',
     detail: 'Formulir BPPU · Nomor bukti, identitas, DPP & PPh',
     hint: 'Gunakan PDF Bukti Potong berformat BPPU dari Coretax.',
@@ -17,6 +19,7 @@ const MODULES = {
   },
   bupot2024: {
     title: 'Bukti Potong 2024', tag: 'PRA-CORETAX', number: '02',
+    group: 'Ekstraksi ke Excel', icon: 'Receipt', brief: 'Formulir BPBS pra-Coretax',
     description: 'Rapikan bukti potong lama dalam satu rekap terstruktur.',
     detail: 'Formulir BPBS · Identitas, objek pajak & pemotong',
     hint: 'Gunakan PDF formulir BPBS (pra-Coretax), dengan bagian H.1–H.5.',
@@ -24,23 +27,39 @@ const MODULES = {
   },
   pm: {
     title: 'Pajak Masukan', tag: 'FAKTUR PAJAK', number: '03',
+    group: 'Ekstraksi ke Excel', icon: 'Invoice', brief: 'Faktur pajak',
     description: 'Satukan rincian faktur pajak, tanpa menyalin satu per satu.',
     detail: 'Faktur PDF · Pembeli, barang, DPP, PPN & netto',
     hint: 'Gunakan faktur dengan teks yang dapat diseleksi. Perhitungan PPN pada modul ini menggunakan tarif tetap 12%.',
     output: 'Hasil_Pajak_Masukan.xlsx',
   },
+  rekening: {
+    title: 'Rekening Koran', tag: 'BCA', number: '04',
+    group: 'Ekstraksi ke Excel', icon: 'Bank', brief: 'e-Statement BCA Giro & Tahapan',
+    description: 'Mutasi rekening per bulan, debit dan kredit terpisah.',
+    detail: 'e-Statement Giro & Tahapan · Debit, kredit, saldo & ringkasan',
+    hint: 'Gunakan e-Statement BCA (Rekening Giro atau Tahapan) yang teksnya dapat diseleksi. Setiap PDF menjadi '
+      + 'satu sheet; total, jumlah transaksi, dan saldo dicocokkan dengan ringkasan di akhir PDF.',
+    output: '!Hasil_Rekap_Rekening_Koran.xlsx',
+  },
   rename: {
-    title: 'Penamaan Bupot', tag: 'PENGELOLAAN PDF', number: '04',
+    title: 'Penamaan Bupot', tag: 'PENGELOLAAN PDF', number: '05',
+    group: 'Kelola PDF', icon: 'Edit2', brief: 'Nama file BPPU, pratinjau & log CSV',
     description: 'Nama file yang konsisten. Dokumen lebih mudah ditemukan.',
-    detail: 'BPPU Coretax · Pratinjau nama & log audit CSV',
-    hint: 'Nama memakai pemotong/pemungut (C.3). Periksa pratinjau sebelum menerapkan; PDF dengan data tidak lengkap dilewati.',
+    detail: 'BPPU Coretax · Nama pemotong atau dipotong, log audit CSV',
+    hint: 'Periksa pratinjau sebelum menerapkan. PDF yang nama pada sumber terpilihnya kosong dilewati, tanpa memakai nama lain.',
     output: 'Log penamaan .csv',
+    // Kunci = nilai --nama engine. Yang pertama adalah pilihan bawaan.
+    nameSources: {
+      pemotong: { title: 'Identitas Pemotong', detail: 'C.3 · Nama pemotong dan/atau pemungut PPh' },
+      penerima: { title: 'Wajib Pajak yang Dipotong', detail: 'A.2 · Nama identitas wajib pajak yang dipotong' },
+    },
   },
 };
 
 let win = null;
 let job = null; // Kunci alat yang sedang diproses: satu pekerjaan sekaligus, navigasi tetap bebas.
-let previewFolder = null; // Penerapan nama hanya untuk folder yang pratinjaunya selesai.
+let preview = null; // Penerapan nama hanya untuk folder dan sumber nama yang pratinjaunya selesai.
 const outputs = {}; // Hanya hasil yang dibuat engine yang boleh dibuka renderer.
 const update = { checking: false, version: null, downloading: false, downloaded: false };
 
@@ -80,17 +99,20 @@ function engineCommand(args) {
   return [path.join(root, '.venv', 'Scripts', 'python.exe'), [path.join(root, 'expcore_engine.py'), ...args]];
 }
 
-async function startJob(key, rawFolder, rawApply) {
+async function startJob(key, rawFolder, rawApply, rawSource) {
   if (job || !Object.hasOwn(MODULES, key)) return false;
   const apply = rawApply === true && key === 'rename';
+  const source = key === 'rename' ? rawSource : null;
+  if (key === 'rename' && !Object.hasOwn(MODULES.rename.nameSources, source)) return false;
   const folder = cleanFolder(rawFolder);
   if (!folder || !isDirectory(folder)) {
     await message('warning', 'Folder tidak ditemukan', 'Pilih folder yang tersedia di perangkat Anda.');
     return false;
   }
   if (apply) {
-    if (previewFolder !== folder) return false;
-    const ok = await confirm('Terapkan penamaan?', 'Nama PDF di folder sumber akan diubah.\n\n'
+    if (preview?.folder !== folder || preview.source !== source) return false;
+    const { title } = MODULES.rename.nameSources[source];
+    const ok = await confirm('Terapkan penamaan?', `Nama PDF di folder sumber akan diubah memakai nama dari ${title}.\n\n`
       + 'Pastikan Anda telah memeriksa CSV pratinjau. Folder akan dipindai ulang; file baru atau yang '
       + 'berubah juga diperiksa. File dengan data tidak lengkap dilewati dan setiap perubahan dicatat '
       + 'dalam log CSV.', 'Terapkan nama');
@@ -103,14 +125,14 @@ async function startJob(key, rawFolder, rawApply) {
   if (job) return false; // Dialog bersifat asinkron; tetap satu pekerjaan.
   job = key;
   delete outputs[key];
-  if (key === 'rename') previewFolder = null;
+  if (key === 'rename') preview = null;
   send('job-event', { key, event: 'start' });
-  const [command, args] = engineCommand([key, folder, ...(apply ? ['--apply'] : [])]);
+  const [command, args] = engineCommand([key, folder, ...(apply ? ['--apply'] : []), ...(source ? ['--nama', source] : [])]);
   runEngine(command, args, (event) => send('job-event', { key, ...event })).then(
     (result) => {
       if (result.path) {
         outputs[key] = key === 'rename' ? folder : result.path;
-        if (key === 'rename' && !apply) previewFolder = folder;
+        if (key === 'rename' && !apply) preview = { folder, source };
       }
       job = null;
       send('job-event', { key, event: 'done', apply, hasOutput: Boolean(result.path), summary: result.summary });
@@ -130,15 +152,21 @@ async function openOutput(key) {
   if (error) await message('error', 'Hasil tidak dapat dibuka', `${target}\n\n${error}`);
 }
 
+const NETWORK_ERROR = /net::ERR_|ENOTFOUND|ECONN|ETIMEDOUT|EAI_AGAIN/;
+const errorText = (error) => `${error?.code ?? ''} ${error?.message ?? ''}`;
+
 function describeUpdateError(error) {
-  const text = `${error?.code ?? ''} ${error?.message ?? ''}`;
-  if (/ERR_UPDATER_CHANNEL_FILE_NOT_FOUND/.test(text)) {
-    return 'Versi baru sudah tercatat, tetapi installernya belum siap.\nSilakan periksa kembali nanti.';
-  }
-  if (/net::ERR_|ENOTFOUND|ECONN|ETIMEDOUT|EAI_AGAIN/.test(text)) {
-    return 'Tidak dapat terhubung. Periksa koneksi internet Anda.';
-  }
-  return 'Layanan pembaruan sedang tidak tersedia.';
+  return NETWORK_ERROR.test(errorText(error))
+    ? 'Tidak dapat terhubung. Periksa koneksi internet Anda.'
+    : 'Layanan pembaruan sedang tidak tersedia.';
+}
+
+// Belum ada rilis, atau rilis terbaru belum memuat latest.yml (mis. rilis lama v2.x yang lebih tua):
+// bukan gangguan, hanya belum ada pembaruan. Pesan aslinya bisa membungkus galat jaringan.
+function noUpdateReady(error) {
+  const text = errorText(error);
+  return /ERR_UPDATER_(CHANNEL_FILE_NOT_FOUND|LATEST_VERSION_NOT_FOUND|NO_PUBLISHED_VERSIONS)/.test(text)
+    && !NETWORK_ERROR.test(text);
 }
 
 async function checkForUpdate(manual) {
@@ -157,9 +185,13 @@ async function checkForUpdate(manual) {
   try {
     result = await autoUpdater.checkForUpdates();
   } catch (error) {
-    send('update-event', { state: 'idle' });
+    const none = noUpdateReady(error);
+    send('update-event', { state: none ? 'current' : 'idle' });
     // Pemeriksaan otomatis yang gagal (mis. offline) tidak boleh mengganggu pengguna.
-    if (manual) {
+    if (manual && none) {
+      await message('info', 'Pembaruan ExpCore',
+        `Anda memakai ExpCore ${app.getVersion()}.\nBelum ada pembaruan yang siap dipasang.`);
+    } else if (manual) {
       await message('warning', 'Pembaruan belum dapat diperiksa',
         `${describeUpdateError(error)}\nAplikasi tetap dapat digunakan.`);
     }

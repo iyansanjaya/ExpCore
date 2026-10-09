@@ -18,6 +18,7 @@ JOBS = {
     "bupot2024": "process_bupot_2024",
     "pm": "process_pm",
     "rename": "process_rename_bupot",
+    "rekening": "process_rekening_koran",
 }
 
 
@@ -26,9 +27,11 @@ def main(argv=None):
     parser.add_argument("job", choices=JOBS)
     parser.add_argument("folder")
     parser.add_argument("--apply", action="store_true", help="terapkan nama baru (khusus rename)")
+    parser.add_argument("--nama", choices=("pemotong", "penerima"),
+                        help="sumber nama file: pemotong C.3 (bawaan) atau penerima A.2 (khusus rename)")
     args = parser.parse_args(argv)
-    if args.apply and args.job != "rename":
-        parser.error("--apply hanya berlaku untuk rename")
+    if (args.apply or args.nama) and args.job != "rename":
+        parser.error("--apply dan --nama hanya berlaku untuk rename")
 
     protocol = sys.stdout
     sys.stdout = sys.stderr  # print() dari pustaka tidak boleh mencemari protokol.
@@ -45,7 +48,7 @@ def main(argv=None):
                          progress=lambda done, total: emit("progress", done=done, total=total))
         method = getattr(engine, JOBS[args.job])
         if args.job == "rename":
-            path, summary = method(args.folder, apply_changes=args.apply)
+            path, summary = method(args.folder, apply_changes=args.apply, name_source=args.nama or "pemotong")
         else:
             path, summary = method(args.folder)
     except Exception as error:

@@ -1,6 +1,6 @@
 """PDF uji sintetis (tanpa data wajib pajak asli) untuk tes engine dan aplikasi.
 
-    python tests/fixtures.py <folder>   -> bppu.pdf, bpbs.pdf, faktur.pdf
+    python tests/fixtures.py <folder>   -> bppu.pdf, bpbs.pdf, faktur.pdf, rekening.pdf
 """
 
 import sys
@@ -64,6 +64,28 @@ FAKTUR_TABLE = [
 ]
 
 
+# e-Statement BCA sintetis: (tanggal, keterangan, keterangan lanjutan, CBG, mutasi, DB/CR, saldo).
+# Baris tanpa tanggal melanjutkan keterangan transaksi sebelumnya; None = pindah halaman, sehingga
+# keterangan transaksi 03/01 berlanjut ke halaman 2. Ringkasan cocok dengan transaksi.
+REKENING_LINES = [
+    ("01/01", "SALDO AWAL", "", "", "", "", "1,000,000.00"),
+    ("02/01", "SETORAN TUNAI", "", "0473", "2,500,000.00", "", ""),
+    ("02/01", "TRSF E-BANKING DB", "0201/FTSCY/WS95051", "", "750,000.00", "DB", "2,750,000.00"),
+    ("", "", "750000.00", "", "", "", ""),
+    ("", "", "BUDI SANTOSO", "", "", "", ""),
+    ("03/01", "TRSF E-BANKING CR", "0301/FTSCY/WS95031", "", "1,234,567.89", "", "3,984,567.89"),
+    ("", "", "1234567.89", "", "", "", ""),
+    None,
+    ("", "", "PT MITRA UJI", "", "", "", ""),
+    ("31/01", "BUNGA", "", "", "1,857.12", "", ""),
+    ("31/01", "PAJAK BUNGA", "", "", "371.42", "DB", "3,986,053.59"),
+]
+REKENING_SUMMARY = [
+    ("SALDO AWAL", "1,000,000.00", ""), ("MUTASI CR", "3,736,425.01", "3"),
+    ("MUTASI DB", "750,371.42", "2"), ("SALDO AKHIR", "3,986,053.59", ""),
+]
+
+
 def _text(x, y, text):
     escaped = text.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
     return f"BT /F1 9 Tf {x} {y} Td ({escaped}) Tj ET"
@@ -82,15 +104,53 @@ def write_pdf(path, lines, table=None):
                 for line_index, line in enumerate(cell if isinstance(cell, list) else [cell]):
                     ops.append(_text(x + 4, y + row_height - 12 - 11 * line_index, line))
                 x += width
-    content = "\n".join(ops).encode("latin-1")
+    _write_pages(path, ["\n".join(ops)])
+
+
+def write_rekening(path, lines=REKENING_LINES, summary=REKENING_SUMMARY, title="REKENING GIRO",
+                   periode="JANUARI 2025", total_pages=None):
+    """e-Statement BCA sintetis dengan kolom pada posisi x seperti aslinya (lihat REKENING_LINES)."""
+    chunks = [[]]
+    for line in lines:
+        if line is None:
+            chunks.append([])
+        else:
+            chunks[-1].append(line)
+    pages = []
+    for number, chunk in enumerate(chunks, 1):
+        ops = [(208, 800, title), (30, 770, "PT CONTOH SEJAHTERA"), (326, 770, "NO. REKENING : 1234567890"),
+               (326, 755, f"HALAMAN : {number} / {total_pages or len(chunks)}"), (326, 740, f"PERIODE : {periode}"),
+               (326, 725, "MATA UANG : IDR"), (34, 690, "TANGGAL"), (163, 690, "KETERANGAN"), (309, 690, "CBG"),
+               (385, 690, "MUTASI"), (504, 690, "SALDO")]
+        y = 672
+        for line in chunk:
+            ops += [(x, y, text) for x, text in zip((46, 92, 195, 306, 380, 448, 505), line) if text]
+            y -= 12
+        if number < len(chunks):
+            ops.append((378, y - 10, "Bersambung ke Halaman berikut"))
+        else:
+            for label, nilai, jumlah in summary:
+                y -= 12
+                ops += [(180, y - 18, f"{label} :"), (293, y - 18, nilai)] + ([(405, y - 18, jumlah)] if jumlah else [])
+        pages.append("\n".join(_text(x, y, text) for x, y, text in ops))
+    _write_pages(path, pages)
+
+
+def _write_pages(path, contents):
+    """PDF A4 dengan satu content stream per halaman, font Helvetica sebagai /F1."""
     objects = [
         b"<< /Type /Catalog /Pages 2 0 R >>",
-        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
-        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] "
-        b"/Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>",
+        None,  # /Pages, diisi setelah nomor objek halaman diketahui.
         b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>",
-        b"<< /Length %d >>\nstream\n" % len(content) + content + b"\nendstream",
     ]
+    kids = []
+    for content in contents:
+        stream = content.encode("latin-1")
+        kids.append(b"%d 0 R" % (len(objects) + 1))
+        objects.append(b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] "
+                       b"/Resources << /Font << /F1 3 0 R >> >> /Contents %d 0 R >>" % (len(objects) + 2))
+        objects.append(b"<< /Length %d >>\nstream\n" % len(stream) + stream + b"\nendstream")
+    objects[1] = b"<< /Type /Pages /Kids [%s] /Count %d >>" % (b" ".join(kids), len(contents))
     data = bytearray(b"%PDF-1.4\n")
     offsets = []
     for number, obj in enumerate(objects, 1):
@@ -100,6 +160,7 @@ def write_pdf(path, lines, table=None):
     data += b"xref\n0 %d\n0000000000 65535 f \n" % (len(objects) + 1)
     data += b"".join(b"%010d 00000 n \n" % offset for offset in offsets)
     data += b"trailer\n<< /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n" % (len(objects) + 1, xref)
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
     Path(path).write_bytes(data)
 
 
@@ -109,6 +170,7 @@ def write_all(folder):
     write_pdf(folder / "bppu.pdf", BPPU_LINES)
     write_pdf(folder / "bpbs.pdf", BPBS_LINES)
     write_pdf(folder / "faktur.pdf", FAKTUR_LINES, FAKTUR_TABLE)
+    write_rekening(folder / "rekening.pdf")
 
 
 if __name__ == "__main__":

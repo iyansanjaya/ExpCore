@@ -17,6 +17,11 @@ const PYTHON = path.join(ROOT, '.venv', 'Scripts', 'python.exe');
 const SCALE = process.env.EXPCORE_SCALE;
 const PACKAGED = process.env.EXPCORE_APP ? path.resolve(ROOT, process.env.EXPCORE_APP) : null;
 const BPPU_NAME = 'ADIRA DINAMIKA MULTI FINANCE TBK - 25004WOBY - 01-2025 - TIDAK FINAL - NORMAL.pdf';
+const BPPU_A2_NAME = 'MITRACOLL SARANA JAYA - 25004WOBY - 01-2025 - TIDAK FINAL - NORMAL.pdf';
+// Urutan MODULES = urutan menu Alat dan shortcut Alt+1..5.
+const TOOLS = ['bupot', 'bupot2024', 'pm', 'rekening', 'rename'];
+const TITLES = { bupot: 'Bukti Potong 2026', bupot2024: 'Bukti Potong 2024', pm: 'Pajak Masukan',
+  rekening: 'Rekening Koran', rename: 'Penamaan Bupot' };
 
 let app;
 let page;
@@ -38,6 +43,14 @@ function fixtures(name, copies = 1) {
 const waitFor = (fn, arg, options = {}) => page.waitForFunction(fn, arg, { polling: 100, ...options });
 
 const tool = (key) => `#page-${key}`;
+const focused = () => page.evaluate(() => document.activeElement.dataset.page || document.activeElement.id
+  || document.activeElement.textContent);
+
+// Buka alat lewat menu Alat di header (klik tombol, lalu klik alatnya).
+async function openTool(key) {
+  await page.click('#tools-trigger');
+  await page.click(`.menu-item[data-page="${key}"]`);
+}
 const status = (key) => page.textContent(`${tool(key)} [data-field="status"]`);
 
 async function stubMain({ answer = 0, pick = null } = {}) {
@@ -72,7 +85,7 @@ async function eventually(check, timeout = 10000) {
 }
 
 async function setFolder(key, folder) {
-  await page.keyboard.press(`Alt+${['bupot', 'bupot2024', 'pm', 'rename'].indexOf(key) + 1}`);
+  await page.keyboard.press(`Alt+${TOOLS.indexOf(key) + 1}`);
   await page.fill(`${tool(key)} .folder`, folder);
 }
 
@@ -87,6 +100,23 @@ async function runTo(key, expected, button = '.run', timeout = 60000) {
 
 // Roda mouse di titik tengah bagian elemen yang terlihat dalam area gulir halaman aktif.
 async function wheelOver(selector, deltaY) {
+  // Posisi dihitung ulang bila halaman masih bergeser (animasi gulir OS pada DPI pecahan) sehingga titik
+  // tidak lagi berada di atas target; roda hanya diputar saat titik benar-benar mengenai target.
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    const point = await wheelPoint(selector);
+    if (await page.evaluate(([target, p]) => Boolean(document.elementFromPoint(p.x, p.y)?.closest(target)), [selector, point])) {
+      await page.evaluate((p) => { window.__lastWheel = p; }, { x: point.x, y: point.y });
+      await page.mouse.move(point.x, point.y);
+      await page.mouse.wheel(0, deltaY);
+      await page.waitForTimeout(150);
+      return;
+    }
+    await page.waitForTimeout(100);
+  }
+  assert.fail(`${selector} terus bergeser; titik roda tidak mengenai target`);
+}
+
+async function wheelPoint(selector) {
   const point = await page.evaluate((target) => {
     const element = document.querySelector(target).getBoundingClientRect();
     const view = document.querySelector(target).closest('.scroll').getBoundingClientRect();
@@ -103,10 +133,7 @@ async function wheelOver(selector, deltaY) {
     });
     assert.fail(`${selector} tidak terlihat untuk roda mouse: ${JSON.stringify({ ...point, win })}`);
   }
-  await page.evaluate((p) => { window.__lastWheel = p; }, { x: point.x, y: point.y });
-  await page.mouse.move(point.x, point.y);
-  await page.mouse.wheel(0, deltaY);
-  await page.waitForTimeout(150);
+  return point;
 }
 
 // Posisi gulir halaman alat di mana log terlihat, tetapi halaman masih dapat digulir lebih jauh.
@@ -210,8 +237,16 @@ describe('ExpCore Electron', () => {
     assert.match(await window.evaluate((w) => w.getTitle()), /^ExpCore \d+\.\d+\.\d+ — Toolkit PDF Coretax$/);
     const version = await app.evaluate(({ app: electronApp }) => electronApp.getVersion());
     assert.equal(await page.textContent('#byline'), `Versi ${version} · by Iyan Sanjaya`);
-    assert.equal(await page.locator('.nav-item').count(), 5);
-    assert.equal(await page.locator('.tool-card').count(), 4);
+    // Header: Beranda + tombol Alat; kelima alat ada di menu Alat (tertutup saat mulai).
+    assert.equal(await page.locator('.nav-item').count(), 2);
+    assert.equal(await page.locator('.tool-card').count(), 5);
+    assert.deepEqual(await page.$$eval('.menu-item [data-field="title"]', (els) => els.map((el) => el.textContent)),
+      TOOLS.map((key) => TITLES[key]));
+    assert.equal(await page.isHidden('#tools-menu'), true);
+    assert.equal(await page.getAttribute('#tools-trigger', 'aria-expanded'), 'false');
+    // Kartu kelima (sendirian di baris terakhir) melebar dua kolom.
+    const [first, last] = await page.$$eval('.tool-card', (els) => [els[0], els.at(-1)].map((el) => el.getBoundingClientRect().width));
+    assert.ok(last > first * 1.9, `kartu terakhir ${last} vs ${first}`);
     // Semua placeholder ikon diganti SVG Reicon; ikon dekoratif disembunyikan dari pembaca layar.
     assert.equal(await page.locator('[data-icon]').count(), 0);
     const icons = await page.$$eval('svg.reicon', (els) => els.map((el) => el.getAttribute('aria-hidden')));
@@ -228,40 +263,127 @@ describe('ExpCore Electron', () => {
     assert.ok(fs.readFileSync(path.join(ROOT, 'app', 'main.js'), 'utf8').includes(`const APP_ID = '${appId}';`));
   });
 
-  it('navigasi lewat menu atas, kartu beranda, dan Alt+0..4', async () => {
-    const expectPage = async (key, title) => {
+  it('navigasi lewat menu Alat, kartu beranda, dan Alt+0..5', async () => {
+    const expectPage = async (key) => {
       assert.equal(await page.isVisible(key === 'home' ? '#page-home' : tool(key)), true, key);
       assert.equal(await page.locator('[id^="page-"]:visible').count(), 1);
-      assert.equal(await page.getAttribute(`.nav-item[data-page="${key}"]`, 'aria-current'), 'page');
-      assert.equal(await page.locator('.nav-item[aria-current="page"]').count(), 1);
-      assert.equal(await page.textContent(`.nav-item[data-page="${key}"]`), title);
-      // Pill indikator (Motion) berhenti tepat di bawah item aktif.
+      const current = key === 'home' ? '.nav-item[data-page="home"]' : `.menu-item[data-page="${key}"]`;
+      assert.equal(await page.getAttribute(current, 'aria-current'), 'page');
+      assert.equal(await page.locator('[aria-current="page"]').count(), 1);
+      // Tombol Alat menampilkan alat aktif dan menutup daftarnya setelah memilih.
+      assert.equal(await page.textContent('#tools-trigger .current'), key === 'home' ? '' : `· ${TITLES[key]}`);
+      assert.equal(await page.getAttribute('#tools-trigger', 'aria-expanded'), 'false');
+      if (key !== 'home') assert.equal(await page.textContent(`${tool(key)} h1`), TITLES[key]);
+      // Pill indikator (Motion) berhenti tepat di bawah Beranda atau tombol Alat.
       await waitFor((selector) => {
         const pill = document.querySelector('#nav-indicator').getBoundingClientRect();
         const item = document.querySelector(selector).getBoundingClientRect();
         return Math.abs(pill.left - item.left) < 1 && Math.abs(pill.width - item.width) < 1;
-      }, `.nav-item[data-page="${key}"]`, { timeout: 3000 });
+      }, key === 'home' ? '.nav-item[data-page="home"]' : '#tools-trigger', { timeout: 3000 });
     };
-    await page.click('.nav-item[data-page="pm"]');
-    await expectPage('pm', 'Pajak Masukan');
+    await openTool('pm');
+    await expectPage('pm');
+    // Item menu yang dipilih ikut tersembunyi; fokus pindah ke judul halaman tujuan.
+    assert.equal(await focused(), 'Pajak Masukan');
     await page.keyboard.press('Alt+0');
-    await expectPage('home', 'Beranda');
+    await expectPage('home');
     await page.click('.open-tool[data-page="rename"]');
-    await expectPage('rename', 'Penamaan Bupot');
-    // Tombol kartu kini tersembunyi; fokus pindah ke judul halaman tujuan.
-    assert.equal(await page.evaluate(() => document.activeElement.id || document.activeElement.textContent), 'Penamaan Bupot');
-    for (const [index, key, title] of [[1, 'bupot', 'Bukti Potong 2026'], [2, 'bupot2024', 'Bukti Potong 2024'],
-      [3, 'pm', 'Pajak Masukan'], [4, 'rename', 'Penamaan Bupot'], [0, 'home', 'Beranda']]) {
+    await expectPage('rename');
+    assert.equal(await focused(), 'Penamaan Bupot');
+    for (const [index, key] of [[1, 'bupot'], [2, 'bupot2024'], [3, 'pm'], [4, 'rekening'], [5, 'rename'], [0, 'home']]) {
       await page.keyboard.press(`Alt+${index}`);
-      await expectPage(key, title);
+      await expectPage(key);
     }
+
+    // Regresi: navigasi cepat dulu membuat pegas indikator mewarisi kecepatan lompatan instan (lebar
+    // hingga ribuan px, meluap keluar jendela). Pantau setiap frame: lebar indikator tidak boleh melebihi
+    // tujuan terlebarnya (+5% ayunan pegas) dan dokumen tidak pernah meluap.
+    await page.evaluate(() => {
+      const watch = { on: true, pill: 0, target: 0, overflow: 0 };
+      window.__pill = watch;
+      const tick = () => {
+        const width = (selector) => document.querySelector(selector).getBoundingClientRect().width;
+        watch.pill = Math.max(watch.pill, width('#nav-indicator'));
+        watch.target = Math.max(watch.target, width('#tools-trigger'), width('.nav-item[data-page="home"]'));
+        watch.overflow = Math.max(watch.overflow, document.documentElement.scrollWidth - innerWidth);
+        if (watch.on) requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    });
+    for (let round = 0; round < 4; round += 1) {
+      for (const digit of [1, 0, 4, 2, 0, 5, 3, 0]) await page.keyboard.press(`Alt+${digit}`);
+    }
+    await page.waitForTimeout(700);
+    const watch = await page.evaluate(() => { window.__pill.on = false; return window.__pill; });
+    assert.ok(watch.pill <= watch.target * 1.05 + 1 && watch.overflow <= 0, JSON.stringify(watch));
+    await expectPage('home');
+  });
+
+  it('menu Alat: grup, klik di luar, Esc, panah, Enter, Tab keluar, dan muat di jendela minimum', async () => {
+    const expanded = () => page.getAttribute('#tools-trigger', 'aria-expanded');
+    await page.keyboard.press('Alt+0');
+    assert.deepEqual(await page.$$eval('#tools-menu ul', (lists) => lists.map((list) => [list.getAttribute('aria-label'),
+      [...list.querySelectorAll('.menu-item')].map((item) => item.dataset.page)])),
+    [['Ekstraksi ke Excel', ['bupot', 'bupot2024', 'pm', 'rekening']], ['Kelola PDF', ['rename']]]);
+    // Klik membuka, klik di luar menutup, klik tombol lagi juga menutup.
+    await page.click('#tools-trigger');
+    assert.equal(await expanded(), 'true');
+    assert.equal(await page.isVisible('#tools-menu'), true);
+    await page.click('.brand'); // Di luar navigasi dan tidak tertutup panel.
+    assert.equal(await expanded(), 'false');
+    assert.equal(await page.isHidden('#tools-menu'), true);
+    await page.click('#tools-trigger');
+    await page.click('#tools-trigger');
+    assert.equal(await expanded(), 'false');
+
+    // Enter pada tombol membuka dan memfokuskan alat pertama; panah berputar; Home/End; Esc kembali ke tombol.
+    await page.focus('#tools-trigger');
+    await page.keyboard.press('Enter');
+    assert.equal(await focused(), 'bupot');
+    for (const [key, expected] of [['ArrowUp', 'rename'], ['ArrowDown', 'bupot'], ['End', 'rename'], ['Home', 'bupot'],
+      ['ArrowDown', 'bupot2024']]) {
+      await page.keyboard.press(key);
+      assert.equal(await focused(), expected, key);
+    }
+    await page.keyboard.press('Escape');
+    assert.equal(await expanded(), 'false');
+    assert.equal(await focused(), 'tools-trigger');
+
+    // Panah bawah membuka tepat di alat aktif; Enter memilih dan fokus pindah ke judul halaman.
+    await page.keyboard.press('Alt+3');
+    await page.focus('#tools-trigger');
+    await page.keyboard.press('ArrowDown');
+    assert.equal(await focused(), 'pm');
+    assert.equal(await page.isVisible('.menu-item[data-page="pm"] .menu-check'), true, 'alat aktif bertanda centang');
+    await page.keyboard.press('ArrowDown');
+    await page.keyboard.press('Enter');
+    assert.equal(await expanded(), 'false');
+    assert.equal(await page.isVisible(tool('rekening')), true);
+    assert.equal(await focused(), 'Rekening Koran');
+
+    // Tab keluar dari daftar menutupnya.
+    await page.focus('#tools-trigger');
+    await page.keyboard.press('ArrowUp');
+    assert.equal(await focused(), 'rename');
+    await page.keyboard.press('Tab');
+    assert.equal(await expanded(), 'false');
+    assert.equal(await focused(), 'check-update');
+
+    // Panel tidak keluar jendela pada ukuran minimum, juga dengan judul alat terpanjang di tombol.
+    await setSize(960, 620);
+    await page.keyboard.press('Alt+1');
+    await page.click('#tools-trigger');
+    const box = await page.$eval('#tools-menu', (el) => el.getBoundingClientRect().toJSON());
+    assert.ok(box.left >= 0 && box.right <= 960 && box.bottom <= 620, JSON.stringify(box));
+    await page.keyboard.press('Escape');
+    assert.deepEqual(page.errors, []);
   });
 
   it('tata letak responsif tanpa overflow pada ukuran minimum dan lebar', async () => {
     for (const [width, height] of [[960, 620], [1180, 800], [960, 700], [1400, 900], [960, 620]]) {
       await setSize(width, height);
-      for (const key of ['home', 'bupot', 'bupot2024', 'pm', 'rename']) {
-        await page.keyboard.press(`Alt+${['home', 'bupot', 'bupot2024', 'pm', 'rename'].indexOf(key)}`);
+      for (const key of ['home', ...TOOLS]) {
+        await page.keyboard.press(`Alt+${['home', ...TOOLS].indexOf(key)}`);
         const metrics = await page.evaluate((name) => {
           const pageElement = document.querySelector(`#page-${name}`);
           const scroll = pageElement.querySelector('.scroll');
@@ -276,16 +398,22 @@ describe('ExpCore Electron', () => {
             columns: getComputedStyle(document.querySelector('.tool-cards')).gridTemplateColumns.split(' ').length,
             header: ['.brand', '#main-nav', '.header-actions'].map((s) => document.querySelector(s).getBoundingClientRect().toJSON()),
             labels: [...document.querySelectorAll('.header-actions .label')].map((el) => el.getClientRects().length > 0),
+            // Bukti bila meluap: elemen yang melewati tepi kanan jendela beserta transform-nya.
+            culprits: [...document.querySelectorAll('body *')].filter((el) => el.getClientRects().length
+              && el.getBoundingClientRect().right > window.innerWidth + 0.5).slice(0, 6)
+              .map((el) => `${el.tagName}#${el.id}.${String(el.className).slice(0, 40)} right=${el.getBoundingClientRect().right
+                .toFixed(1)} transform=${getComputedStyle(el).transform} opacity=${getComputedStyle(el).opacity}`),
           };
         }, key);
         const label = `${key} @ ${width}x${height}`;
-        assert.ok(metrics.docOverflow <= 0, `${label}: horizontal overflow dokumen`);
+        assert.ok(metrics.docOverflow <= 0,
+          `${label}: horizontal overflow dokumen ${metrics.docOverflow}px ${JSON.stringify(metrics.culprits)}`);
         assert.ok(metrics.scrollOverflow <= 0, `${label}: horizontal overflow halaman`);
         const [brand, nav, actions] = metrics.header;
         assert.ok(brand.right <= nav.left && nav.right <= actions.left && actions.right <= metrics.viewport[0],
           `${label}: header bertumpuk ${JSON.stringify(metrics.header)}`);
-        // Di bawah 1120 px, tombol update dan badge privasi menyusut menjadi ikon saja.
-        assert.deepEqual(metrics.labels, Array(2).fill(metrics.viewport[0] >= 1120), label);
+        // Header ringkas: label tombol update dan badge privasi selalu tampil, juga di lebar minimum.
+        assert.deepEqual(metrics.labels, [true, true], label);
         if (key === 'home') {
           assert.equal(metrics.title, metrics.viewport[0] < 1100 ? '40px' : '50px', label);
           assert.equal(metrics.columns, 2, label);
@@ -410,9 +538,11 @@ describe('ExpCore Electron', () => {
   });
 
   for (const [key, output, summary] of [
-    ['bupot', '!Hasil_Rekap_Bupot.xlsx', 'Selesai — 1 baris, 2 PDF dilewati.'],
-    ['bupot2024', '!Hasil_Rekap_Bupot_2024.xlsx', 'Selesai — 1 baris, 2 PDF dilewati.'],
-    ['pm', 'Hasil_Pajak_Masukan.xlsx', 'Selesai — 1 baris, 2 PDF dilewati.'],
+    ['bupot', '!Hasil_Rekap_Bupot.xlsx', 'Selesai — 1 baris, 3 PDF dilewati.'],
+    ['bupot2024', '!Hasil_Rekap_Bupot_2024.xlsx', 'Selesai — 1 baris, 3 PDF dilewati.'],
+    ['pm', 'Hasil_Pajak_Masukan.xlsx', 'Selesai — 1 baris, 3 PDF dilewati.'],
+    ['rekening', '!Hasil_Rekap_Rekening_Koran.xlsx',
+      'Selesai — 1 rekening koran, 5 transaksi, 0 perlu dicek, 3 PDF dilewati.'],
   ]) {
     it(`ekstraksi ${key}: PDF -> Excel, ringkasan, log, dan Buka hasil`, async () => {
       const folder = fixtures(`Ekstraksi ${key} — Ünïcode`);
@@ -423,14 +553,14 @@ describe('ExpCore Electron', () => {
       assert.ok(fs.statSync(path.join(folder, output)).size > 0);
       assert.equal(await page.textContent(`${tool(key)} [data-field="summary"]`), summary);
       const log = await page.textContent(`${tool(key)} .log`);
-      assert.match(log, /^\d\d:\d\d:\d\d {3}Memproses 3 file …\n/);
+      assert.match(log, /^\d\d:\d\d:\d\d {3}Memproses 4 file …\n/);
       assert.match(log, /Membaca sub[\\/]bppu\.pdf/);
       assert.ok(log.trimEnd().endsWith(summary), log);
       assert.equal(await page.getAttribute(`${tool(key)} .progress`, 'aria-valuenow'), '100');
       await page.click(`${tool(key)} .open`);
       assert.deepEqual(await eventually(async () => (await calls()).opened.length && (await calls()).opened),
         [path.join(folder, output)]);
-      assert.equal(await page.textContent(`.nav-item[data-page="${key}"]`), await page.textContent(`${tool(key)} h1`));
+      assert.equal(await page.textContent('#tools-trigger .current'), `· ${await page.textContent(`${tool(key)} h1`)}`);
     });
   }
 
@@ -491,6 +621,46 @@ describe('ExpCore Electron', () => {
     assert.equal(logs.filter((name) => name.includes('_Penerapan_')).length, 1, logs.join());
   });
 
+  it('penamaan: sumber nama C.3 atau A.2, pratinjau terikat pada sumbernya', async () => {
+    const folder = fixtures('sumber nama');
+    const radio = (value) => `${tool('rename')} .name-source input[value="${value}"]`;
+    await setFolder('rename', folder);
+    await stubMain({ answer: 0 });
+    // Bawaan: Identitas Pemotong (C.3); pilihan berupa radio asli yang dapat dipilih dengan panah.
+    assert.equal(await page.isChecked(radio('pemotong')), true);
+    assert.deepEqual(await page.$$eval(`${tool('rename')} .name-source .source-option`, (els) => els.map((el) => el.textContent)),
+      ['Identitas PemotongC.3 · Nama pemotong dan/atau pemungut PPh',
+        'Wajib Pajak yang DipotongA.2 · Nama identitas wajib pajak yang dipotong']);
+    await page.focus(radio('pemotong'));
+    await page.keyboard.press('ArrowRight');
+    assert.equal(await page.isChecked(radio('penerima')), true);
+
+    await runTo('rename', 'SELESAI');
+    assert.equal(await page.isEnabled(`${tool('rename')} .apply`), true);
+    // Mengganti sumber membatalkan pratinjau, di renderer maupun di main.
+    await page.click(`${tool('rename')} .source-option:has(input[value="pemotong"])`);
+    assert.equal(await page.isDisabled(`${tool('rename')} .apply`), true);
+    assert.equal(await status('rename'), 'SIAP DIPROSES');
+    assert.equal(await page.evaluate((f) => window.expcore.runJob('rename', f, true, 'pemotong'), folder), false,
+      'pratinjau A.2 tidak berlaku untuk penerapan C.3');
+    assert.equal(await page.evaluate((f) => window.expcore.runJob('rename', f, false, 'lainnya'), folder), false,
+      'sumber nama tidak dikenal ditolak');
+    assert.deepEqual((await calls()).dialogs, []);
+    assert.ok(fs.existsSync(path.join(folder, 'sub', 'bppu.pdf')));
+
+    await page.click(`${tool('rename')} .source-option:has(input[value="penerima"])`);
+    await runTo('rename', 'SELESAI');
+    const csvName = fs.readdirSync(folder).filter((name) => name.includes('_Pratinjau_')).sort().at(-1);
+    const csvText = fs.readFileSync(path.join(folder, csvName), 'utf8');
+    assert.ok(csvText.includes(`SIAP,sub,bppu.pdf,${BPPU_A2_NAME}`), csvText);
+    assert.match(await page.textContent(`${tool('rename')} .log`), /Pratinjau: memeriksa 4 PDF … \(nama dari Wajib Pajak yang Dipotong \(A\.2\)\)/);
+    await runTo('rename', 'SELESAI', '.apply');
+    const [dialog] = (await calls()).dialogs;
+    assert.match(dialog.detail, /memakai nama dari Wajib Pajak yang Dipotong\./);
+    assert.ok(fs.existsSync(path.join(folder, 'sub', BPPU_A2_NAME)));
+    assert.ok(!fs.existsSync(path.join(folder, 'sub', 'bppu.pdf')) && !fs.existsSync(path.join(folder, 'sub', BPPU_NAME)));
+  });
+
   it('selama memproses: kontrol terkunci, navigasi bebas, satu pekerjaan, jendela tidak ditutup', async () => {
     const folder = fixtures('besar', 40);
     await setFolder('pm', folder);
@@ -498,11 +668,14 @@ describe('ExpCore Electron', () => {
     await page.click(`${tool('pm')} .run`);
     await waitFor(() => document.querySelector('#page-pm [data-field="summary"]').textContent.startsWith('Memeriksa PDF'), null, { timeout: 60000 });
     assert.equal(await status('pm'), 'MEMPROSES');
-    // Item menu alat yang sibuk ditandai aria-busy dan titik berdenyut; teksnya tetap judul alat.
-    assert.equal(await page.getAttribute('.nav-item[data-page="pm"]', 'aria-busy'), 'true');
-    assert.equal(await page.isVisible('.nav-item[data-page="pm"] .busy-dot'), true);
-    assert.equal(await page.textContent('.nav-item[data-page="pm"]'), 'Pajak Masukan');
-    assert.ok(await page.$$eval('.folder, .browse, .run, .apply', (els) => els.every((el) => el.disabled)));
+    // Alat yang sibuk ditandai aria-busy dan titik berdenyut di menu; tombol Alat juga bertitik saat menu tertutup.
+    assert.equal(await page.getAttribute('.menu-item[data-page="pm"]', 'aria-busy'), 'true');
+    assert.equal(await page.isVisible('#tools-trigger .busy-dot'), true);
+    await page.click('#tools-trigger');
+    assert.equal(await page.isVisible('.menu-item[data-page="pm"] .busy-dot'), true);
+    assert.equal(await page.textContent('.menu-item[data-page="pm"] [data-field="title"]'), 'Pajak Masukan');
+    await page.keyboard.press('Escape');
+    assert.ok(await page.$$eval('.folder, .browse, .run, .apply, .name-source input', (els) => els.every((el) => el.disabled)));
     await page.keyboard.press('Alt+1');
     assert.equal(await page.isVisible(tool('bupot')), true, 'navigasi tetap aktif');
     assert.equal(await page.evaluate((f) => window.expcore.runJob('bupot', f), folder), false, 'pekerjaan kedua ditolak');
@@ -516,9 +689,10 @@ describe('ExpCore Electron', () => {
     const progress = Number(await page.getAttribute(`${tool('pm')} .progress`, 'aria-valuenow'));
     assert.ok(progress < 100 && await status('pm') === 'MEMPROSES', `progres determinan saat berjalan: ${progress}`);
     await waitFor(() => document.querySelector('#page-pm [data-field="status"]').textContent === 'SELESAI', null, { timeout: 120000 });
-    assert.equal(await page.textContent(`${tool('pm')} [data-field="summary"]`), 'Selesai — 40 baris, 80 PDF dilewati.');
-    assert.equal(await page.getAttribute('.nav-item[data-page="pm"]', 'aria-busy'), 'false');
-    assert.equal(await page.isHidden('.nav-item[data-page="pm"] .busy-dot'), true);
+    assert.equal(await page.textContent(`${tool('pm')} [data-field="summary"]`), 'Selesai — 40 baris, 81 PDF dilewati.');
+    assert.equal(await page.getAttribute('.menu-item[data-page="pm"]', 'aria-busy'), 'false');
+    assert.equal(await page.isHidden('#tools-trigger .busy-dot'), true);
+    assert.equal(await page.$eval('.menu-item[data-page="pm"] .busy-dot', (el) => el.hidden), true);
     // Pekerjaan selesai saat halaman lain aktif: kembali ke alat menampilkan baris log terakhir.
     await page.keyboard.press('Alt+3');
     assert.ok(await page.$eval(`${tool('pm')} .log`, (el) => {
@@ -557,14 +731,14 @@ describe('ExpCore Electron', () => {
     const picked = fixtures('dipilih');
     await stubMain({ pick: picked });
     await page.keyboard.press('Alt+2');
-    await page.focus('.nav-item[data-page="bupot2024"]');
+    await page.focus('#tools-trigger');
     await page.keyboard.press('Control+O');
     await waitFor((f) => document.querySelector('#page-bupot2024 .folder').value === f, picked);
     assert.equal((await calls()).picks[0].properties[0], 'openDirectory');
     assert.equal(await status('bupot2024'), 'SIAP DIPROSES');
 
     await setSize(960, 620);
-    await page.focus('.nav-item[data-page="bupot2024"]');
+    await page.focus('#tools-trigger');
     await page.keyboard.press('PageDown');
     assert.ok(await page.$eval(`${tool('bupot2024')} .scroll`, (el) => el.scrollTop) > 0, 'Page Down menggulir halaman');
     await page.keyboard.press('PageUp');
@@ -613,7 +787,7 @@ describe('ExpCore Electron', () => {
     await page.$eval(scroll, (el) => { el.scrollTop = el.scrollHeight; });
     await waitFor(() => [...document.querySelectorAll('#page-home [data-reveal]')]
       .every((el) => Number(getComputedStyle(el).opacity) > 0.999), null, { timeout: 5000 });
-    assert.equal(await page.locator('#page-home [data-reveal]').count(), 13);
+    assert.equal(await page.locator('#page-home [data-reveal]').count(), 14); // termasuk lima kartu alat
     await page.$eval(scroll, (el) => { el.scrollTop = 0; });
   });
 
