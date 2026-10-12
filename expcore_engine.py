@@ -19,6 +19,7 @@ JOBS = {
     "pm": "process_pm",
     "rename": "process_rename_bupot",
     "rekening": "process_rekening_koran",
+    "cimb": "process_rekening_cimb",
 }
 
 

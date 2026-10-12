@@ -1,6 +1,7 @@
 import os
 import glob
 import re
+import bisect
 import csv
 import unicodedata
 import pdfplumber
@@ -16,10 +17,11 @@ from decimal import Decimal
 class ExpCore:
     """Parser PDF Coretax. Aktivitas dan progres dilaporkan lewat callback."""
 
-    # Sumber nama file pada Penamaan Bupot: kunci CLI -> (field data, label untuk log/CSV).
+    # Sumber nama file pada Penamaan Bupot: kunci CLI -> (field data, label, kode bagian per formulir).
+    # BPPU = Bupot 2026 (Coretax), BPBS = Bupot 2024; dokumen tak dikenal dibaca sebagai BPPU.
     RENAME_NAME_SOURCES = {
-        "pemotong": ("NAMA_PEMOTONG", "Identitas Pemotong (C.3)"),
-        "penerima": ("NAMA_PENERIMA", "Wajib Pajak yang Dipotong (A.2)"),
+        "pemotong": ("NAMA_PEMOTONG", "Identitas Pemotong", {"BPPU": "C.3", "BPBS": "C.2"}),
+        "penerima": ("NAMA_PENERIMA", "Wajib Pajak yang Dipotong", {"BPPU": "A.2", "BPBS": "A.3"}),
     }
 
     def __init__(self, log=None, progress=None):
@@ -93,8 +95,38 @@ class ExpCore:
         value = re.sub(r"\s+", " ", value).rstrip(". ").strip()
         return (value or "UNKNOWN")[:max_len].rstrip(". ")
 
+    @classmethod
+    def _extract_rename_bupot_data(cls, text):
+        """Field nama file Penamaan Bupot dari BPPU (Bupot 2026) atau BPBS (Bupot 2024).
+
+        Formulir dikenali dari judulnya. FORMULIR kosong bila dokumen bukan keduanya; dokumen
+        seperti itu tetap dibaca dengan parser BPPU (perilaku lama) dan biasanya dilewati.
+        """
+        text = unicodedata.normalize("NFKC", text or "").replace(" ", " ")
+        if re.search(r"\bFORMULIR\s+BPBS\b", text, re.IGNORECASE):
+            return {**cls._extract_bpbs_rename_data(text), "FORMULIR": "BPBS"}
+        bppu = re.search(r"\bBPPU\b|PEMOTONGAN\s+DAN/ATAU\s+PEMUNGUTAN\s+PPh", text, re.IGNORECASE)
+        return {**cls._extract_bppu_rename_data(text), "FORMULIR": "BPPU" if bppu else ""}
+
+    @classmethod
+    def _extract_bpbs_rename_data(cls, text):
+        """Field nama file dari BPBS. Tidak menebak: data yang ambigu dibiarkan kosong sehingga PDF dilewati."""
+        header = cls._bpbs_header(text)
+        # Satu bukti potong = satu masa pajak; bila baris objek pajak berbeda masa, jangan memilih salah satu.
+        masa = {f"{int(bulan):02d}-{tahun}" for bulan, tahun in
+                (match.group(1).split("-") for match in cls._BPBS_ROW.finditer(text))}
+        return {
+            "NAMA_PENERIMA": cls._clean_filename_value(header["nama"]),
+            "NAMA_PEMOTONG": cls._clean_filename_value(header["nama_pemotong"]),
+            "NOMOR_BUKTI": header["nomor_bukti"],
+            "MASA_PAJAK": masa.pop() if len(masa) == 1 else "",
+            "SIFAT": "" if header["sifat"] == "-" else header["sifat"],
+            # Status hanya dari kotak H.2 yang terbaca, bukan bawaan NORMAL.
+            "STATUS": header["status"] if header["pembetulan_terbaca"] else "",
+        }
+
     @staticmethod
-    def _extract_rename_bupot_data(text):
+    def _extract_bppu_rename_data(text):
         # ponytail: tambah fallback hanya saat ada contoh layout Coretax yang benar-benar gagal.
         text = unicodedata.normalize("NFKC", text or "").replace("\u00a0", " ")
         text_flat = re.sub(r"\s+", " ", text)
@@ -187,14 +219,14 @@ class ExpCore:
         if not pdf_files:
             raise ValueError("Tidak ada PDF di folder atau subfolder ini. Pilih folder lain.")
 
-        name_field, name_label = ExpCore.RENAME_NAME_SOURCES[name_source]
+        name_field, name_label, name_codes = ExpCore.RENAME_NAME_SOURCES[name_source]
         mode = "Penerapan" if apply_changes else "Pratinjau"
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         log_path = os.path.join(folder, f"Log_Penamaan_Bupot_{mode}_{timestamp}.csv")
         fields = [
             "status", "folder_sumber", "nama_lama", "nama_baru", "data_tidak_lengkap",
             "NAMA_PENERIMA", "NAMA_PEMOTONG", "NOMOR_BUKTI", "MASA_PAJAK", "SIFAT", "STATUS",
-            "sumber_nama",
+            "sumber_nama", "FORMULIR",
         ]
         # Tanpa fallback: bila nama dari sumber terpilih kosong, PDF dilewati, bukan memakai nama lain.
         required_fields = (name_field, "NOMOR_BUKTI", "MASA_PAJAK", "SIFAT", "STATUS")
@@ -256,13 +288,16 @@ class ExpCore:
                             status = "SIAP"
                             complete += 1
 
+                        code = name_codes.get(data["FORMULIR"], name_codes["BPPU"])
                         row.update({
                             "status": status,
                             "nama_baru": new_name,
                             "data_tidak_lengkap": ", ".join(missing),
+                            "sumber_nama": f"{name_label} ({code})",
                             **data,
                         })
-                        self.log(f"{status}: {relative_file} → {new_name}")
+                        form = f" [{data['FORMULIR']}]" if data["FORMULIR"] else ""
+                        self.log(f"{status}: {relative_file} → {new_name}{form}")
                     except Exception as error:
                         failed += 1
                         self.log(f"ERROR: {relative_file} — {error}")
@@ -291,7 +326,7 @@ class ExpCore:
 
         # Nomor bukti, masa pajak & status ada di header — logika sama dengan
         # fitur penamaan otomatis, jadi dipakai ulang.
-        header = cls._extract_rename_bupot_data(teks_lengkap)
+        header = cls._extract_bppu_rename_data(teks_lengkap)
         nomor_bukti = header["NOMOR_BUKTI"] or "-"
         masa_pajak = header["MASA_PAJAK"] or "-"
         status_bukti = header["STATUS"] or "NORMAL"
@@ -433,9 +468,16 @@ class ExpCore:
             return ""
         return f"{day.zfill(2)}-{month.zfill(2)}-{year}"
 
+    # Baris objek pajak BPBS: masa, kode objek, DPP, centang tarif lebih tinggi, tarif, PPh.
+    # Tarif dapat berupa bilangan bulat (2) atau desimal (2.00 / 2,00).
+    _BPBS_ROW = re.compile(
+        r"(\d{1,2}-\d{4})\s+(\d{2}-\d{3}-\d{2})\s+([\d.]+,\d{2})\s+"
+        r"(?:(X)\s+)?(\d+(?:[.,]\d+)?)\s+([\d.]+,\d{2})"
+    )
+
     @classmethod
-    def _extract_bupot2024_rows(cls, teks_lengkap):
-        """Ambil baris objek pajak dari teks satu PDF Bukti Potong formulir BPBS.
+    def _bpbs_header(cls, teks_lengkap):
+        """Identitas, dokumen referensi, dan bagian H satu PDF BPBS (dipakai rekap 2024 dan penamaan).
 
         Berbeda dari BPPU Coretax: angka ditulis per kotak (NPWP, tanggal) dan
         sifat Final/Tidak Final ditandai centang "X" di depan labelnya.
@@ -480,37 +522,44 @@ class ExpCore:
         # Tepat satu kotak harus tercentang; selain itu jangan menebak.
         sifat = "-" if final == tidak_final else ("FINAL" if final else "TIDAK FINAL")
 
+        return {
+            "npwp": npwp, "nik": nik, "nama": nama, "objek_pajak": objek_pajak,
+            "nomor_dokumen": nomor_dokumen, "nama_dokumen": nama_dokumen, "tanggal_dokumen": tanggal_dokumen,
+            "npwp_pemotong": npwp_pemotong, "nama_pemotong": nama_pemotong, "tanggal_bukti": tanggal_bukti,
+            "penandatangan": penandatangan, "nomor_bukti": nomor_bukti, "pembetulan": pembetulan,
+            "pembetulan_terbaca": pembetulan_str.isdigit(), "status": status_bukti, "sifat": sifat,
+        }
+
+    @classmethod
+    def _extract_bupot2024_rows(cls, teks_lengkap):
+        """Ambil baris objek pajak dari teks satu PDF Bukti Potong formulir BPBS."""
+        h = cls._bpbs_header(teks_lengkap)
         baris_data = []
-        # Tarif BPBS dapat berupa bilangan bulat (2) atau desimal (2.00 / 2,00).
-        pola_baris = (
-            r"(\d{1,2}-\d{4})\s+(\d{2}-\d{3}-\d{2})\s+([\d.]+,\d{2})\s+"
-            r"(?:(X)\s+)?(\d+(?:[.,]\d+)?)\s+([\d.]+,\d{2})"
-        )
-        for match in re.finditer(pola_baris, teks):
+        for match in cls._BPBS_ROW.finditer(teks_lengkap or ""):
             masa, kode_objek, dpp, tarif_tinggi, tarif, pph = match.groups()
             bulan, tahun = masa.split("-")
             baris_data.append({
-                "Nomor Bukti Potong": nomor_bukti or "-",
-                "Pembetulan Ke": pembetulan,
-                "Status Bukti": status_bukti,
-                "Sifat": sifat,
-                "NPWP": npwp or "-",
-                "NIK": nik or "-",
-                "Nama": nama or "-",
+                "Nomor Bukti Potong": h["nomor_bukti"] or "-",
+                "Pembetulan Ke": h["pembetulan"],
+                "Status Bukti": h["status"],
+                "Sifat": h["sifat"],
+                "NPWP": h["npwp"] or "-",
+                "NIK": h["nik"] or "-",
+                "Nama": h["nama"] or "-",
                 "Masa Pajak": f"{bulan.zfill(2)}-{tahun}",
                 "Kode Objek Pajak": kode_objek,
-                "Objek Pajak": objek_pajak or "-",
+                "Objek Pajak": h["objek_pajak"] or "-",
                 "DPP (Rp)": cls.parse_values(dpp),
                 "Tarif Lebih Tinggi": "Ya" if tarif_tinggi else "Tidak",
                 "Tarif (%)": cls.parse_tarif(tarif),
                 "Pajak Penghasilan (Rp)": cls.parse_values(pph),
-                "Nomor Dokumen Referensi": nomor_dokumen or "-",
-                "Nama Dokumen": nama_dokumen or "-",
-                "Tanggal Dokumen": tanggal_dokumen or "-",
-                "NPWP Pemotong": npwp_pemotong or "-",
-                "Nama Pemotong": nama_pemotong or "-",
-                "Tanggal Bukti Potong": tanggal_bukti or "-",
-                "Nama Penandatangan": penandatangan or "-",
+                "Nomor Dokumen Referensi": h["nomor_dokumen"] or "-",
+                "Nama Dokumen": h["nama_dokumen"] or "-",
+                "Tanggal Dokumen": h["tanggal_dokumen"] or "-",
+                "NPWP Pemotong": h["npwp_pemotong"] or "-",
+                "Nama Pemotong": h["nama_pemotong"] or "-",
+                "Tanggal Bukti Potong": h["tanggal_bukti"] or "-",
+                "Nama Penandatangan": h["penandatangan"] or "-",
             })
         return baris_data
 
@@ -716,6 +765,52 @@ class ExpCore:
         return Decimal(value.replace(",", ""))
 
     @staticmethod
+    def _teks_uang(value):
+        return f"{value:,.2f}"
+
+    @staticmethod
+    def _tanggal_mutasi(teks, bulan, tahun):
+        """'31/12' pada laporan bulan/tahun tertentu -> datetime; ValueError bila tidak valid.
+
+        Mutasi bulan sebelumnya (mis. 31/12 pada periode Januari) milik tahun sebelumnya.
+        """
+        hari, bulan_baris = (int(part) for part in teks.split("/"))
+        return datetime(tahun - 1 if bulan_baris > bulan else tahun, bulan_baris, hari)
+
+    @staticmethod
+    def _tandai_ganda(laporan, kunci, daftar_catatan):
+        """Laporan dengan periode sama di lebih dari satu PDF: setiap salinan diberi catatan (jadi PERLU CEK).
+
+        Tidak ada yang dibuang karena ExpCore tidak tahu salinan mana yang dimaksud; tanpa tanda ini
+        transaksinya terhitung ganda di Excel tanpa terlihat. Mengembalikan kelompok salinan untuk log.
+        """
+        kelompok = {}
+        for data in laporan:
+            kelompok.setdefault(kunci(data), []).append(data)
+        ganda = [salinan for salinan in kelompok.values() if len(salinan) > 1]
+        for salinan in ganda:
+            for data in salinan:
+                lain = ", ".join(os.path.normpath(os.path.join(d["folder_sumber"], d["file"]))
+                                 for d in salinan if d is not data)
+                for catatan in daftar_catatan(data):
+                    catatan.append(f"Laporan periode yang sama juga ada di {lain}; transaksinya bisa tercatat ganda.")
+        return ganda
+
+    @classmethod
+    def _cek_saldo_berjalan(cls, transaksi, awal, akhir):
+        """Catatan selisih saldo berjalan: mendeteksi debit/kredit yang tertukar walau totalnya cocok."""
+        catatan, berjalan, uang = [], awal, cls._teks_uang
+        for t in transaksi:
+            berjalan += (t["kredit"] or 0) - (t["debit"] or 0)
+            if t["saldo"] is not None and t["saldo"] != berjalan:
+                tanggal = t["tanggal"].strftime("%d/%m") if isinstance(t["tanggal"], datetime) else t["tanggal"]
+                catatan.append(f"{tanggal}: saldo PDF {uang(t['saldo'])}, hasil hitung {uang(berjalan)}.")
+                berjalan = t["saldo"]
+        if berjalan != akhir:
+            catatan.append(f"Saldo hasil hitung {uang(berjalan)} berbeda dari saldo akhir {uang(akhir)}.")
+        return catatan
+
+    @staticmethod
     def _baris_halaman(page):
         """Kata pdfplumber per baris visual: urut dari atas, lalu dari kiri."""
         lines = []
@@ -811,10 +906,8 @@ class ExpCore:
                 continue
             if len(item["mutasi"]) != 1 or len(item["tanda"]) > 1 or len(item["saldo"]) > 1 or len(item["cbg"]) > 1:
                 catatan.append(f"{asal}: susunan kolom tidak dikenal — {keterangan[:50]}")
-            hari, bulan_baris = (int(part) for part in item["tanggal"].split("/"))
             try:
-                # Mutasi bulan sebelumnya (mis. 31/12 pada periode Januari) milik tahun sebelumnya.
-                tanggal = datetime(tahun - 1 if bulan_baris > bulan else tahun, bulan_baris, hari)
+                tanggal = cls._tanggal_mutasi(item["tanggal"], bulan, tahun)
             except ValueError:
                 tanggal = item["tanggal"]
                 catatan.append(f"{asal}: tanggal tidak valid.")
@@ -830,7 +923,7 @@ class ExpCore:
             label: (cls._rupiah(nilai), int(jumlah) if jumlah else None)
             for label, (nilai, jumlah) in ringkasan.items() if cls._UANG.fullmatch(nilai)
         }
-        uang = lambda value: f"{value:,.2f}"
+        uang = cls._teks_uang
         if len(nilai_ringkasan) < 4 or None in (nilai_ringkasan["MUTASI CR"][1], nilai_ringkasan["MUTASI DB"][1]):
             catatan.append("Ringkasan saldo dan mutasi di akhir PDF tidak lengkap.")
         else:
@@ -845,16 +938,7 @@ class ExpCore:
                 catatan.append("Ringkasan PDF tidak seimbang: saldo awal + mutasi CR − mutasi DB ≠ saldo akhir.")
             if saldo_awal_tabel is not None and saldo_awal_tabel != awal:
                 catatan.append(f"Saldo awal di tabel {uang(saldo_awal_tabel)} berbeda dari ringkasan {uang(awal)}.")
-            # Saldo berjalan: mendeteksi debit/kredit yang tertukar walau totalnya kebetulan cocok.
-            berjalan = awal
-            for t in transaksi:
-                berjalan += (t["kredit"] or 0) - (t["debit"] or 0)
-                if t["saldo"] is not None and t["saldo"] != berjalan:
-                    tanggal = t["tanggal"].strftime("%d/%m") if isinstance(t["tanggal"], datetime) else t["tanggal"]
-                    catatan.append(f"{tanggal}: saldo PDF {uang(t['saldo'])}, hasil hitung {uang(berjalan)}.")
-                    berjalan = t["saldo"]
-            if berjalan != akhir:
-                catatan.append(f"Saldo hasil hitung {uang(berjalan)} berbeda dari saldo akhir {uang(akhir)}.")
+            catatan += cls._cek_saldo_berjalan(transaksi, awal, akhir)
         if halaman and int(halaman.group(1)) != len(pages):
             catatan.append(f"PDF hanya berisi {len(pages)} dari {halaman.group(1)} halaman.")
 
@@ -865,27 +949,76 @@ class ExpCore:
             "transaksi": transaksi, "ringkasan": nilai_ringkasan, "catatan": catatan,
         }
 
+    _ISI_JUDUL = PatternFill(start_color="D9D9D9", end_color="D9D9D9", fill_type="solid")
+    _GAYA_HASIL = {
+        "SESUAI": (PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid"),
+                   Font(bold=True, color="006100")),
+        "PERLU CEK": (PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid"),
+                      Font(bold=True, color="9C0006")),
+    }
+    _FORMAT_UANG = "#,##0.00"
+
+    @classmethod
+    def _judul_excel(cls, cells):
+        for cell in cells:
+            cell.fill, cell.font = cls._ISI_JUDUL, Font(bold=True)
+
     @staticmethod
-    def _write_rekening_excel(rekening, output_path):
+    def _angka(value):
+        return float(value) if value is not None else None
+
+    @staticmethod
+    def _nama_sheet(used, awalan, akhiran):
+        """Nama sheet unik maks. 31 karakter: awalan yang dipotong, akhiran (nomor & periode) tetap utuh."""
+        base = re.sub(r"[\[\]:*?/\\]", " ", awalan[:max(0, 31 - len(akhiran))] + akhiran)[:31].strip()
+        name, copy = base, 2
+        while name.casefold() in used:
+            suffix = f" ({copy})"
+            name, copy = base[:31 - len(suffix)].rstrip() + suffix, copy + 1
+        used.add(name.casefold())
+        return name
+
+    @classmethod
+    def _tulis_panel(cls, ws, panel, kolom, hasil, judul):
+        """Panel label–nilai di kanan tabel mutasi, mulai kolom `kolom`; None = baris kosong."""
+        for row_number, values in enumerate(panel, 1):
+            if values is None:
+                continue
+            cells = [ws.cell(row=row_number, column=kolom + index, value=value) for index, value in enumerate(values)]
+            if values[0] in judul:
+                cls._judul_excel(cells)
+            elif values[0] == "No. Rekening":
+                cells[1].number_format = "@"
+            elif isinstance(values[1], float):
+                cells[1].number_format = cls._FORMAT_UANG
+            elif isinstance(values[1], datetime):
+                cells[1].number_format = "dd/mm/yyyy"
+            if values[0] == hasil:
+                cells[0].fill, cells[0].font = cls._GAYA_HASIL[hasil]
+
+    @classmethod
+    def _tautan_sheet(cls, cell, name):
+        cell.hyperlink = Hyperlink(ref=cell.coordinate, location=f"'{name}'!A1")
+        cell.font = Font(color="0563C1", underline="single")
+
+    @classmethod
+    def _rapikan_tabel(cls, ws):
+        """Judul tebal, baris judul dibekukan, filter, dan lebar kolom mengikuti isi (maks. 55)."""
+        cls._judul_excel(ws[1])
+        ws.freeze_panes = "A2"
+        ws.auto_filter.ref = ws.dimensions
+        for column in ws.columns:
+            max_length = max((len(str(cell.value)) for cell in column if cell.value is not None), default=0)
+            ws.column_dimensions[column[0].column_letter].width = min(max_length + 2, 55)
+
+    @classmethod
+    def _write_rekening_excel(cls, rekening, output_path):
         """Sheet Ringkasan + satu sheet per PDF (tabel mutasi, panel informasi & ringkasan di kanan).
 
         Ringkasan PDF ditulis di panel terpisah (kolom H–J), bukan di bawah tabel: kolom DEBIT/CREDIT
         tetap berisi transaksi saja sehingga SUM, filter, dan pengurutan tidak ikut menghitung ringkasan.
         """
-        header_fill = PatternFill(start_color="D9D9D9", end_color="D9D9D9", fill_type="solid")
-        hasil_style = {
-            "SESUAI": (PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid"),
-                       Font(bold=True, color="006100")),
-            "PERLU CEK": (PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid"),
-                          Font(bold=True, color="9C0006")),
-        }
-        uang = "#,##0.00"
-        angka = lambda value: float(value) if value is not None else None
-
-        def header(cells):
-            for cell in cells:
-                cell.fill, cell.font = header_fill, Font(bold=True)
-
+        uang, angka = cls._FORMAT_UANG, cls._angka
         book = Workbook()
         overview = book.active
         overview.title = "Ringkasan"
@@ -895,17 +1028,11 @@ class ExpCore:
         used = {"ringkasan"}
         for number, data in enumerate(rekening, 1):
             jenis = re.sub(r"^REKENING\s*", "", data["jenis"]).title() or "Rekening"
-            suffix = f" {data['norek']} {data['tahun']}-{data['bulan']:02d}"
-            base = re.sub(r"[\[\]:*?/\\]", " ", jenis[:max(0, 31 - len(suffix))] + suffix)[:31].strip()
-            name, copy = base, 2
-            while name.casefold() in used:
-                suffix = f" ({copy})"
-                name, copy = base[:31 - len(suffix)].rstrip() + suffix, copy + 1
-            used.add(name.casefold())
+            name = cls._nama_sheet(used, jenis, f" {data['norek']} {data['tahun']}-{data['bulan']:02d}")
 
             ws = book.create_sheet(name)
             ws.append(["TANGGAL", "KETERANGAN", "CBG", "DEBIT", "CREDIT", "SALDO"])
-            header(ws[1])
+            cls._judul_excel(ws[1])
             for t in data["transaksi"]:
                 ws.append([t["tanggal"], t["keterangan"], t["cbg"] or None,
                            angka(t["debit"]), angka(t["kredit"]), angka(t["saldo"])])
@@ -937,19 +1064,7 @@ class ExpCore:
                 (hasil, None, None),
                 *((f"• {note}", None, None) for note in data["catatan"]),
             ]
-            for row_number, values in enumerate(panel, 1):
-                if values is None:
-                    continue
-                cells = [ws.cell(row=row_number, column=column, value=value)
-                         for column, value in zip((8, 9, 10), values)]
-                if values[0] in ("INFORMASI REKENING", "RINGKASAN PDF", "HASIL CEK"):
-                    header(cells)
-                elif values[0] == "No. Rekening":
-                    cells[1].number_format = "@"
-                elif isinstance(values[1], float):
-                    cells[1].number_format = uang
-                if values[0] == hasil:
-                    cells[0].fill, cells[0].font = hasil_style[hasil]
+            cls._tulis_panel(ws, panel, 8, hasil, ("INFORMASI REKENING", "RINGKASAN PDF", "HASIL CEK"))
 
             widths = {"A": 12, "B": min(max((len(t["keterangan"]) for t in data["transaksi"]), default=10) + 2, 80),
                       "C": 7, "D": 17, "E": 17, "F": 18, "G": 3, "H": 20, "J": 11,
@@ -964,20 +1079,14 @@ class ExpCore:
                 len(data["transaksi"]), hasil, "; ".join(data["catatan"]) or None, data["folder_sumber"], data["file"],
             ])
             row = overview[overview.max_row]
-            row[1].hyperlink = Hyperlink(ref=row[1].coordinate, location=f"'{name}'!A1")
-            row[1].font = Font(color="0563C1", underline="single")
+            cls._tautan_sheet(row[1], name)
             row[3].number_format = "@"
             for cell in (row[7], row[8], row[10], row[12]):
                 cell.number_format = uang
-            row[14].fill, row[14].font = hasil_style[hasil]
+            row[14].fill, row[14].font = cls._GAYA_HASIL[hasil]
             row[0].alignment = Alignment(horizontal="center")
 
-        header(overview[1])
-        overview.freeze_panes = "A2"
-        overview.auto_filter.ref = f"A1:R{overview.max_row}"
-        for column in overview.columns:
-            max_length = max((len(str(cell.value)) for cell in column if cell.value is not None), default=0)
-            overview.column_dimensions[column[0].column_letter].width = min(max_length + 2, 55)
+        cls._rapikan_tabel(overview)
         book.save(output_path)
 
     def process_rekening_koran(self, folder):
@@ -1020,14 +1129,11 @@ class ExpCore:
                               "yang memiliki lapisan teks.")
 
             rekening.sort(key=lambda d: (d["jenis"], d["norek"], d["tahun"], d["bulan"], d["file"]))
-            periode = {}
-            for data in rekening:
-                key = (data["jenis"], data["norek"], data["tahun"], data["bulan"])
-                periode.setdefault(key, []).append(data["file"])
-            for (jenis, norek, tahun, bulan), files in periode.items():
-                if len(files) > 1:
-                    self.log(f"PERINGATAN: {jenis} {norek} periode {bulan:02d}-{tahun} muncul di "
-                             f"{len(files)} PDF: {', '.join(files)}")
+            for salinan in self._tandai_ganda(rekening, lambda d: (d["jenis"], d["norek"], d["tahun"], d["bulan"]),
+                                              lambda d: [d["catatan"]]):
+                d = salinan[0]
+                self.log(f"PERINGATAN: {d['jenis']} {d['norek']} periode {d['bulan']:02d}-{d['tahun']} muncul di "
+                         f"{len(salinan)} PDF: {', '.join(x['file'] for x in salinan)} — ditandai PERLU CEK.")
 
             output_path = os.path.join(folder, "!Hasil_Rekap_Rekening_Koran.xlsx")
             self._write_rekening_excel(rekening, output_path)
@@ -1040,3 +1146,495 @@ class ExpCore:
             self.log(f"Error: {str(e)}")
             raise
 
+    # ══════════════════════════════════════════
+    #  EKSTRAKSI — REKENING KORAN CIMB NIAGA (Combine Statement Portfolio)
+    # ══════════════════════════════════════════
+    _BULAN_INGGRIS = ("JANUARY", "FEBRUARY", "MARCH", "APRIL", "MAY", "JUNE", "JULY", "AUGUST",
+                      "SEPTEMBER", "OCTOBER", "NOVEMBER", "DECEMBER")
+    # Judul tabel mutasi (baris kedua judul dua bahasa), kiri ke kanan = urutan kolom.
+    _CIMB_JUDUL = ("Transaksi/", "Valuta/", "Uraian", "Cek/BG", "Debit/", "Kredit/", "Saldo/")
+    # Daftar rekening di RINCIAN ASET yang direkap: kategori, judul daftar, baris total (Ekuivalen IDR).
+    _CIMB_KATEGORI = (
+        ("Tabungan/Giro", re.compile(r"Tabungan\s*/\s*Giro\s*/\s*Savings\s*/\s*Current\s+Account", re.I),
+         re.compile(r"Total\s+Tabungan\s*/\s*Giro\s*/.*\s(\S+)", re.I)),
+        ("Tabungan Berjangka", re.compile(r"Tabungan\s+Berjangka\s*/\s*Installment\s+Savings?", re.I),
+         re.compile(r"TOTAL\s+TABUNGAN\s+BERJANGKA\s*/.*\s(\S+)", re.I)),
+    )
+    _CIMB_ASET = re.compile(r"RINCIAN\s+ASET\s*/\s*ASSET\s+DETAIL", re.I)
+    _CIMB_AKUN = re.compile(r"Nomor\s+Rekening\s*-\s*Mata\s+Uang\s*/\s*Account\s+Number\s*-\s*Currency\s*:"
+                            r"\s*(\d+)\s*-\s*([A-Z]{3})")
+    _CIMB_PRODUK = re.compile(r"Nama\s+Produk\s*/\s*Product\s+Name\s*:\s*(.*)")
+    # Isi kotak kepala setiap halaman (setelah halaman sampul): tanggal laporan, nomor CIF, profil risiko.
+    _CIMB_KEPALA = re.compile(r"\d{1,2}\s+[A-Za-z]+\s+\d{4}\s+(\d{6,})\b")
+
+    @staticmethod
+    def _cimb_garis(page):
+        """Garis horizontal tabel (batas sel) di halaman, urut dari atas: [(y, [(x0, x1), ...]), ...]."""
+        garis = []
+        for edge in sorted(page.rects + page.lines, key=lambda e: e["top"]):
+            if edge["height"] < 1.5 and edge["width"] > 2:
+                if garis and edge["top"] - garis[-1][0] <= 1:
+                    garis[-1][1].append((edge["x0"], edge["x1"]))
+                else:
+                    garis.append((edge["top"], [(edge["x0"], edge["x1"])]))
+        return garis
+
+    @classmethod
+    def _cimb_kolom(cls, judul, garis):
+        """Tepi kolom tabel mutasi dari garis tepat di bawah judulnya; None bila susunannya tidak dikenal."""
+        bawah = max(w["bottom"] for w in judul)
+        tepi = []
+        for x in sorted(x for segmen in next((s for y, s in garis if y > bawah), []) for x in segmen):
+            if not tepi or x - tepi[-1] > 1.5:
+                tepi.append(x)
+        kolom = lambda w: bisect.bisect(tepi, (w["x0"] + w["x1"]) / 2) - 1
+        if len(tepi) == len(cls._CIMB_JUDUL) + 1 and all(
+                any(w["text"] == teks and kolom(w) == index for w in judul)
+                for index, teks in enumerate(cls._CIMB_JUDUL)):
+            return tepi
+        return None
+
+    @classmethod
+    def _cimb_isi(cls, pages):
+        """Isi laporan berurutan lintas halaman: penanda bagian dan sel tabel, tanpa bergantung nomor halaman.
+
+        Baris yang dikenali dari teksnya (judul bagian, baris total, identitas rekening) menjadi penanda
+        (tuple). Baris lain dikelompokkan per sel tabel, yaitu di antara dua garis batas: satu transaksi
+        CIMB bisa beberapa baris dengan tanggal dan nominal di tengah sel. Setiap sel membawa tepi kolom
+        tabel mutasi yang berlaku di halamannya (None bila belum ada judul tabel di halaman itu).
+        """
+        isi, cif, jumlah_halaman = [], "", None
+        for nomor, page in enumerate(pages, 1):
+            garis = cls._cimb_garis(page)
+            ys = [y for y, _ in garis]
+            lines = cls._baris_halaman(page)
+            teks = [" ".join(w["text"] for w in line) for line in lines]
+            # Kotak kepala halaman diakhiri baris tanggal laporan + CIF; halaman n/total ada di dalamnya.
+            kepala = next((index for index, text in enumerate(teks[:10]) if cls._CIMB_KEPALA.match(text)), None)
+            if kepala is not None:
+                cif = cif or cls._CIMB_KEPALA.match(teks[kepala]).group(1)
+                halaman = re.search(r"\b\d+\s*/\s*(\d+)\b", " ".join(teks[:kepala + 1]))
+                jumlah_halaman = int(halaman.group(1)) if halaman else jumlah_halaman
+            # Nomor dokumen di kaki halaman: angka saja dan di bawah garis tabel terakhir, sehingga uraian
+            # yang kebetulan hanya angka (mis. nomor rekening tujuan) tidak ikut terbuang.
+            if teks and teks[-1].isdigit() and (not ys or lines[-1][0]["top"] > ys[-1]):
+                lines, teks = lines[:-1], teks[:-1]
+            awal = 0 if kepala is None else kepala + 1
+            lines, teks = lines[awal:], teks[awal:]
+            sel = lambda line: bisect.bisect(ys, (line[0]["top"] + line[0]["bottom"]) / 2)
+            judul = {sel(line): cls._cimb_kolom(line, garis) for line in lines
+                     if {"Uraian", "Debit/", "Kredit/", "Saldo/"} <= {w["text"] for w in line}}
+            kolom, aktif = None, None
+            for line, text in zip(lines, teks):
+                kunci = sel(line)
+                if kunci in judul:  # judul tabel mutasi: beberapa baris dalam satu sel
+                    if aktif != ("judul", kunci):
+                        kolom, aktif = judul[kunci], ("judul", kunci)
+                        isi.append(("judul", nomor, kolom))
+                    continue
+                penanda = None
+                if cls._CIMB_ASET.fullmatch(text):
+                    penanda = ("aset",)
+                for kategori, judul_daftar, baris_total in cls._CIMB_KATEGORI:
+                    total = baris_total.fullmatch(text)
+                    if judul_daftar.fullmatch(text):
+                        penanda = ("daftar", kategori)
+                    elif total:
+                        penanda = ("total", kategori, total.group(1))
+                akun, produk = cls._CIMB_AKUN.fullmatch(text), cls._CIMB_PRODUK.fullmatch(text)
+                if akun:
+                    penanda = ("akun", akun.group(1), akun.group(2))
+                elif produk:
+                    penanda = ("produk", produk.group(1).strip())
+                if penanda:
+                    isi.append(penanda)
+                    aktif = None
+                    continue
+                if aktif != ("sel", kunci):
+                    isi.append({"halaman": nomor, "kolom": kolom, "words": [], "teks": []})
+                    aktif = ("sel", kunci)
+                isi[-1]["words"] += line
+                isi[-1]["teks"].append(text)
+        return isi, cif, jumlah_halaman
+
+    @classmethod
+    def _cimb_mutasi(cls, akun, sel, bulan, tahun):
+        """Masukkan satu sel tabel mutasi ke rekening: SALDO AWAL, transaksi, Total, atau SALDO AKHIR."""
+        asal, ringkas = f"Hal. {sel['halaman']}", " ".join(sel["teks"])[:70]
+        if sel["kolom"] is None:
+            akun["catatan"].append(f"{asal}: teks di luar tabel mutasi — {ringkas}")
+            return
+        isi, asing = [[] for _ in cls._CIMB_JUDUL], []
+        for word in sel["words"]:
+            index = bisect.bisect(sel["kolom"], (word["x0"] + word["x1"]) / 2) - 1
+            (isi[index] if 0 <= index < len(isi) else asing).append(word["text"])
+        tanggal, valuta, uraian, cek, debit, kredit, saldo = (" ".join(teks) for teks in isi)
+        uang = {nama: cls._rupiah(teks) if cls._UANG.fullmatch(teks) else None
+                for nama, teks in (("debit", debit), ("kredit", kredit), ("saldo", saldo))}
+        # Setiap kolom nominal kosong atau tepat satu angka; tidak ada teks di luar kolom tabel.
+        rapi = not asing and all(uang[nama] is not None or not teks
+                                 for nama, teks in (("debit", debit), ("kredit", kredit), ("saldo", saldo)))
+
+        if not tanggal and uraian in ("SALDO AWAL", "SALDO AKHIR"):
+            if not rapi or valuta or cek or debit or kredit or uang["saldo"] is None or akun[uraian] is not None:
+                akun["catatan"].append(f"{asal}: baris {uraian} tidak dikenal — {ringkas}")
+            if akun[uraian] is None:
+                akun[uraian] = uang["saldo"]
+            akun["tutup"] = uraian == "SALDO AKHIR"
+        elif tanggal == "Total":
+            if not rapi or valuta or uraian or cek or saldo or akun["total"] is not None:
+                akun["catatan"].append(f"{asal}: baris Total tidak dikenal — {ringkas}")
+            if akun["total"] is None:
+                akun["total"] = (uang["debit"] or Decimal(0), uang["kredit"] or Decimal(0))
+        elif re.fullmatch(r"\d{2}/\d{2}", tanggal):
+            tanggal_mutasi = {"tanggal": None, "valuta": None}
+            for nama, label, teks in (("tanggal", "transaksi", tanggal), ("valuta", "valuta", valuta)):
+                if not teks:
+                    continue
+                try:
+                    acuan = tanggal_mutasi["tanggal"]
+                    if nama == "valuta" and isinstance(acuan, datetime):
+                        # Valuta bisa melewati pergantian tahun (31/12 -> 02/01): tahun terdekat dengan transaksi.
+                        hari, bulan_valuta = (int(part) for part in teks.split("/"))
+                        tahun_valuta = acuan.year + (acuan.month - bulan_valuta > 6) - (bulan_valuta - acuan.month > 6)
+                        tanggal_mutasi[nama] = datetime(tahun_valuta, bulan_valuta, hari)
+                    else:
+                        tanggal_mutasi[nama] = cls._tanggal_mutasi(teks, bulan, tahun)
+                except ValueError:
+                    tanggal_mutasi[nama] = teks
+                    akun["catatan"].append(f"{asal} {tanggal}: tanggal {label} tidak valid ({teks}).")
+            if not rapi or bool(debit) == bool(kredit) or uang["saldo"] is None:
+                akun["catatan"].append(f"{asal} {tanggal}: susunan kolom tidak dikenal — {uraian[:50]}")
+            akun["transaksi"].append({**tanggal_mutasi, "keterangan": uraian, "cek": cek,
+                                      "debit": uang["debit"], "kredit": uang["kredit"], "saldo": uang["saldo"]})
+        else:
+            akun["catatan"].append(f"{asal}: baris tidak dikenal — {ringkas}")
+
+    @classmethod
+    def _extract_rekening_cimb(cls, pages):
+        """Baca satu Combine Statement Portfolio (Laporan Konsolidasi) CIMB Niaga dari halaman pdfplumber.
+
+        Yang direkap hanya rekening yang tercantum di daftar RINCIAN ASET bagian Tabungan/Giro dan
+        Tabungan Berjangka; rincian rekening lain (mis. deposito) dan halaman lain diabaikan. Setiap
+        rekening dicek: total debit/kredit terhadap baris Total, saldo berjalan, saldo akhir terhadap
+        daftar aset, dan per kategori jumlah saldo Ekuivalen IDR terhadap baris totalnya. Setiap selisih
+        masuk "catatan". Mengembalikan None bila PDF bukan laporan tersebut.
+        """
+        teks = (pages[0].extract_text() or "") if pages else ""
+        if "CIMB" not in teks or not re.search(r"COMBINE\s+STATEMENT\s+PORTFOLIO|LAPORAN\s+KONSOLIDASI\s+PORTFOLIO",
+                                               teks, re.IGNORECASE):
+            return None
+        laporan = re.search(r"Tanggal\s+Laporan\s*:\s*(\d{1,2})\s+([A-Za-z]+)\s+(\d{4})", teks)
+        nama_bulan = laporan.group(2).upper() if laporan else ""
+        bulan = next((index % 12 + 1 for index, nama in enumerate(cls._BULAN_INGGRIS + cls.BULAN)
+                      if nama == nama_bulan), None)
+        if not bulan:
+            raise ValueError("Tanggal laporan di halaman pertama tidak terbaca.")
+        tanggal_laporan = datetime(int(laporan.group(3)), bulan, int(laporan.group(1)))
+        tahun = tanggal_laporan.year
+        nasabah = re.search(r"Bapak/Ibu/Sir/Madam\s*\n(.+)", teks)
+        isi, cif, jumlah_halaman = cls._cimb_isi(pages)
+
+        uang = cls._teks_uang
+        catatan_pdf, daftar, total, dilihat, blok = [], {}, {}, set(), []
+        aset, bagian, akun = False, None, None
+        for item in isi:
+            jenis = item[0] if isinstance(item, tuple) else "sel"
+            if jenis == "aset":
+                aset = True
+            elif not aset:
+                continue
+            elif jenis in ("daftar", "total", "akun"):
+                bagian = item[1] if jenis == "daftar" else None
+                akun = None
+                if jenis == "daftar":
+                    dilihat.add(item[1])
+                elif jenis == "total":
+                    total[item[1]] = item[2]
+                else:
+                    akun = {"norek": item[1], "mata_uang": item[2], "produk": "", "tutup": False,
+                            "SALDO AWAL": None, "SALDO AKHIR": None, "total": None, "transaksi": [], "catatan": []}
+                    blok.append(akun)
+            elif akun is None or akun["tutup"]:
+                # Baris daftar rekening: nomor rekening di depan, dua nilai paling kanan adalah saldo
+                # mata uang asal dan saldo Ekuivalen IDR ("-" = 0, rekening jatuh tempo). Baris lain
+                # (judul daftar) diabaikan. Salah baca tertangkap cek saldo akhir dan cek total kategori.
+                words = item["words"] if jenis == "sel" else []
+                if bagian and words and re.fullmatch(r"\d{6,20}", words[0]["text"]):
+                    nilai = sorted((w for w in words if w["text"] == "-" or cls._UANG.fullmatch(w["text"])),
+                                   key=lambda w: w["x1"])[-2:]
+                    saldo, saldo_idr = ((Decimal(0) if w["text"] == "-" else cls._rupiah(w["text"]) for w in nilai)
+                                        if len(nilai) == 2 else (None, None))
+                    if words[0]["text"] in daftar:
+                        catatan_pdf.append(f"Rekening {words[0]['text']} tercantum lebih dari sekali di daftar aset.")
+                    else:
+                        daftar[words[0]["text"]] = {"kategori": bagian, "saldo": saldo, "saldo_idr": saldo_idr}
+            elif jenis == "produk":
+                akun["produk"] = item[1]
+            elif jenis == "judul":
+                if item[2] is None:
+                    akun["catatan"].append(f"Hal. {item[1]}: susunan kolom tabel mutasi tidak dikenal.")
+            else:
+                cls._cimb_mutasi(akun, item, bulan, tahun)
+
+        if jumlah_halaman and jumlah_halaman != len(pages):
+            catatan_pdf.append(f"PDF hanya berisi {len(pages)} dari {jumlah_halaman} halaman.")
+        for akun in blok:
+            catatan, transaksi = akun["catatan"], akun["transaksi"]
+            awal, akhir = akun["SALDO AWAL"], akun["SALDO AKHIR"]
+            for label, nilai in (("SALDO AWAL", awal), ("SALDO AKHIR", akhir)):
+                if nilai is None:
+                    catatan.append(f"Baris {label} tidak ditemukan.")
+            if akun["total"] is None:
+                catatan.append("Baris Total debit/kredit tidak ditemukan.")
+            else:
+                for field, nilai in zip(("debit", "kredit"), akun["total"]):
+                    values = [t[field] for t in transaksi if t[field] is not None]
+                    if sum(values, Decimal(0)) != nilai:
+                        catatan.append(f"{field.title()} terbaca {uang(sum(values, Decimal(0)))} dari {len(values)} "
+                                       f"transaksi, baris Total PDF {uang(nilai)}.")
+                if None not in (awal, akhir) and awal + akun["total"][1] - akun["total"][0] != akhir:
+                    catatan.append("Tabel PDF tidak seimbang: saldo awal + total kredit − total debit ≠ saldo akhir.")
+            if None not in (awal, akhir):
+                catatan += cls._cek_saldo_berjalan(transaksi, awal, akhir)
+
+        per_rekening = {}
+        for akun in blok:
+            per_rekening.setdefault(akun["norek"], []).append(akun)
+        rekening = []
+        for norek, info in daftar.items():
+            rincian = per_rekening.get(norek) or [{
+                "norek": norek, "mata_uang": "", "produk": "", "SALDO AWAL": None, "SALDO AKHIR": None,
+                "total": None, "transaksi": [], "catatan": ["Rincian transaksi rekening ini tidak ditemukan di PDF."],
+            }]
+            for akun in rincian:
+                if len(rincian) > 1:
+                    akun["catatan"].append(f"Rincian rekening ini muncul {len(rincian)} kali di PDF.")
+                if info["saldo"] is None:
+                    akun["catatan"].append(f"Saldo rekening di daftar {info['kategori']} tidak terbaca.")
+                elif akun["SALDO AKHIR"] is not None and akun["SALDO AKHIR"] != info["saldo"]:
+                    akun["catatan"].append(f"Saldo akhir {uang(akun['SALDO AKHIR'])} berbeda dari saldo di daftar "
+                                           f"{info['kategori']} {uang(info['saldo'])}.")
+                akun.update(kategori=info["kategori"], saldo_daftar=info["saldo"], saldo_idr=info["saldo_idr"])
+                akun["catatan"] += catatan_pdf
+                rekening.append(akun)
+
+        kategori = []
+        for nama, _, _ in cls._CIMB_KATEGORI:
+            anggota = [info for info in daftar.values() if info["kategori"] == nama]
+            if nama not in dilihat and nama not in total:
+                continue
+            catatan = []
+            nilai_total = cls._rupiah(total[nama]) if cls._UANG.fullmatch(total.get(nama, "")) else None
+            jumlah = sum((info["saldo_idr"] for info in anggota if info["saldo_idr"] is not None), Decimal(0))
+            if nilai_total is None:
+                catatan.append(f"Baris total {nama} tidak ditemukan atau tidak terbaca.")
+            if not anggota:
+                catatan.append(f"Daftar rekening {nama} tidak terbaca.")
+            elif any(info["saldo_idr"] is None for info in anggota):
+                catatan.append("Saldo Ekuivalen IDR sebagian rekening tidak terbaca.")
+            elif nilai_total is not None and jumlah != nilai_total:
+                catatan.append(f"Jumlah saldo Ekuivalen IDR {uang(jumlah)} berbeda dari total PDF {uang(nilai_total)}.")
+            kategori.append({"kategori": nama, "rekening": len(anggota), "total": nilai_total, "jumlah": jumlah,
+                             "catatan": catatan + catatan_pdf})
+
+        return {
+            "nasabah": nasabah.group(1).strip() if nasabah else "", "cif": cif,
+            "tanggal_laporan": tanggal_laporan, "periode": f"{cls.BULAN[bulan - 1]} {tahun}",
+            "bulan": bulan, "tahun": tahun, "rekening": rekening, "kategori": kategori,
+        }
+
+    @classmethod
+    def _write_cimb_excel(cls, laporan, output_path):
+        """Sheet Ringkasan (per rekening), Total Kategori (per PDF), Semua Transaksi, dan satu sheet mutasi
+        per rekening per PDF.
+
+        Seperti rekening koran BCA, ringkasan PDF ada di panel kanan (kolom I–J), bukan di bawah tabel,
+        sehingga kolom DEBIT/KREDIT hanya berisi transaksi. Semua Transaksi menggabungkan transaksi seluruh
+        rekening, urut per kategori lalu nomor rekening dan tetap kronologis di dalam setiap rekening, sehingga
+        kolom SALDO tetap saldo berjalan rekening itu.
+        """
+        uang, angka = cls._FORMAT_UANG, cls._angka
+        hasil_cek = lambda catatan: "PERLU CEK" if catatan else "SESUAI"
+        book = Workbook()
+        overview = book.active
+        overview.title = "Ringkasan"
+        overview.append(["No", "Sheet", "Kategori", "No. Rekening", "Nama Produk", "Mata Uang", "Tanggal Laporan",
+                         "Saldo Awal", "Total Debit", "Total Kredit", "Saldo Akhir", "Saldo Ekuivalen IDR",
+                         "Transaksi Terbaca", "Hasil Cek", "Catatan", "Nasabah", "Folder Sumber", "File Name"])
+        totals = book.create_sheet("Total Kategori")
+        totals.append(["No", "Tanggal Laporan", "Kategori", "Jumlah Rekening", "Total PDF (Ekuivalen IDR)",
+                       "Jumlah Saldo Rekening (Ekuivalen IDR)", "Hasil Cek", "Catatan", "Nasabah",
+                       "Folder Sumber", "File Name"])
+        semua = book.create_sheet("Semua Transaksi")
+        semua.append(["No", "Tanggal Transaksi", "Tanggal Valuta", "Kategori", "No. Rekening", "Nama Produk",
+                      "Mata Uang", "Uraian Transaksi", "No Cek/BG", "Debit", "Kredit", "Saldo", "Hasil Cek",
+                      "Tanggal Laporan", "Sheet", "File Name"])
+        gabungan = []
+        used = {"ringkasan", "total kategori", "semua transaksi"}
+        for data in laporan:
+            for kat in data["kategori"]:
+                hasil = hasil_cek(kat["catatan"])
+                totals.append([totals.max_row, data["tanggal_laporan"], kat["kategori"], kat["rekening"],
+                               angka(kat["total"]), angka(kat["jumlah"]), hasil, "; ".join(kat["catatan"]) or None,
+                               data["nasabah"], data["folder_sumber"], data["file"]])
+                row = totals[totals.max_row]
+                row[1].number_format = "dd/mm/yyyy"
+                for cell in row[4:6]:
+                    cell.number_format = uang
+                row[6].fill, row[6].font = cls._GAYA_HASIL[hasil]
+                row[0].alignment = Alignment(horizontal="center")
+
+            for akun in data["rekening"]:
+                name = cls._nama_sheet(used, "", f"{akun['norek']} {data['tahun']}-{data['bulan']:02d}")
+                ws = book.create_sheet(name)
+                ws.append(["TANGGAL TRANSAKSI", "TANGGAL VALUTA", "URAIAN TRANSAKSI", "NO CEK/BG",
+                           "DEBIT", "KREDIT", "SALDO"])
+                cls._judul_excel(ws[1])
+                for t in akun["transaksi"]:
+                    ws.append([t["tanggal"], t["valuta"], t["keterangan"], t["cek"] or None,
+                               angka(t["debit"]), angka(t["kredit"]), angka(t["saldo"])])
+                last = ws.max_row
+                for row in ws.iter_rows(min_row=2, max_row=last):
+                    for cell in row[:2]:
+                        cell.number_format = "dd/mm/yyyy"
+                    row[3].number_format = "@"
+                    for cell in row[4:7]:
+                        cell.number_format = uang
+                ws.freeze_panes = "A2"
+                ws.auto_filter.ref = f"A1:G{last}"
+
+                debit, kredit = akun["total"] or (None, None)
+                hasil = hasil_cek(akun["catatan"])
+                panel = [
+                    ("INFORMASI REKENING", None),
+                    ("Kategori", akun["kategori"]), ("No. Rekening", akun["norek"]), ("Nama Produk", akun["produk"]),
+                    ("Mata Uang", akun["mata_uang"]), ("Nasabah", data["nasabah"]),
+                    ("Tanggal Laporan", data["tanggal_laporan"]), ("File", data["file"]),
+                    None,
+                    ("RINGKASAN PDF", "NILAI"),
+                    ("SALDO AWAL", angka(akun["SALDO AWAL"])), ("TOTAL DEBIT", angka(debit)),
+                    ("TOTAL KREDIT", angka(kredit)), ("SALDO AKHIR", angka(akun["SALDO AKHIR"])),
+                    ("SALDO DI DAFTAR ASET", angka(akun["saldo_daftar"])),
+                    ("SALDO EKUIVALEN IDR", angka(akun["saldo_idr"])),
+                    None,
+                    ("HASIL CEK", None),
+                    (hasil, None),
+                    *((f"• {note}", None) for note in akun["catatan"]),
+                ]
+                cls._tulis_panel(ws, panel, 9, hasil, ("INFORMASI REKENING", "RINGKASAN PDF", "HASIL CEK"))
+                widths = {"A": 12, "B": 12, "D": 14, "E": 17, "F": 17, "G": 18, "H": 3, "I": 22,
+                          "C": min(max((len(t["keterangan"]) for t in akun["transaksi"]), default=10) + 2, 80),
+                          "J": min(max(len(str(v)) for v in (akun["produk"], data["nasabah"], data["file"],
+                                                              "1,000,000,000.00")) + 2, 45)}
+                for column, width in widths.items():
+                    ws.column_dimensions[column].width = width
+
+                overview.append([
+                    overview.max_row, name, akun["kategori"], akun["norek"], akun["produk"], akun["mata_uang"],
+                    data["tanggal_laporan"], angka(akun["SALDO AWAL"]), angka(debit), angka(kredit),
+                    angka(akun["SALDO AKHIR"]), angka(akun["saldo_idr"]), len(akun["transaksi"]), hasil,
+                    "; ".join(akun["catatan"]) or None, data["nasabah"], data["folder_sumber"], data["file"],
+                ])
+                row = overview[overview.max_row]
+                cls._tautan_sheet(row[1], name)
+                row[3].number_format = "@"
+                row[6].number_format = "dd/mm/yyyy"
+                for cell in row[7:12]:
+                    cell.number_format = uang
+                row[13].fill, row[13].font = cls._GAYA_HASIL[hasil]
+                row[0].alignment = Alignment(horizontal="center")
+                gabungan += [(akun, t, data, name, hasil) for t in akun["transaksi"]]
+
+        # Urutan laporan sudah kronologis; sort stabil per kategori lalu nomor rekening menjaga urutan itu.
+        kategori = {nama: index for index, (nama, _, _) in enumerate(cls._CIMB_KATEGORI)}
+        gabungan.sort(key=lambda item: (kategori.get(item[0]["kategori"], len(kategori)), item[0]["norek"]))
+        for number, (akun, t, data, name, hasil) in enumerate(gabungan, 1):
+            semua.append([number, t["tanggal"], t["valuta"], akun["kategori"], akun["norek"], akun["produk"],
+                          akun["mata_uang"], t["keterangan"], t["cek"] or None, angka(t["debit"]),
+                          angka(t["kredit"]), angka(t["saldo"]), hasil, data["tanggal_laporan"], name, data["file"]])
+            row = semua[semua.max_row]
+            for cell in (row[1], row[2], row[13]):
+                cell.number_format = "dd/mm/yyyy"
+            row[4].number_format = row[8].number_format = "@"
+            for cell in row[9:12]:
+                cell.number_format = uang
+            row[12].fill, row[12].font = cls._GAYA_HASIL[hasil]
+            cls._tautan_sheet(row[14], name)
+            row[0].alignment = Alignment(horizontal="center")
+
+        cls._rapikan_tabel(overview)
+        cls._rapikan_tabel(totals)
+        cls._rapikan_tabel(semua)
+        book.save(output_path)
+
+    def process_rekening_cimb(self, folder):
+        if not folder or not os.path.isdir(folder):
+            raise ValueError("Folder tidak ditemukan. Pilih folder yang tersedia.")
+        pdf_files = sorted(glob.glob(os.path.join(folder, "**", "*.pdf"), recursive=True))
+        if not pdf_files:
+            raise ValueError("Tidak ada PDF di folder atau subfolder ini. Pilih folder lain.")
+
+        self.log(f"Memproses {len(pdf_files)} file …")
+        laporan, dilewati = [], 0
+        try:
+            for index, file_pdf in enumerate(pdf_files):
+                self.progress(index, len(pdf_files))
+                relatif = os.path.relpath(file_pdf, folder)
+                self.log(f"Membaca {relatif}")
+                try:
+                    with pdfplumber.open(file_pdf) as pdf:
+                        data = self._extract_rekening_cimb(pdf.pages)
+                except Exception as error:
+                    dilewati += 1
+                    self.log(f"GAGAL: {relatif} — {error}")
+                    continue
+                if data is None:
+                    dilewati += 1
+                    self.log(f"DILEWATI: {relatif} — bukan Combine Statement Portfolio CIMB Niaga.")
+                    continue
+                if not data["rekening"]:
+                    dilewati += 1
+                    self.log(f"DILEWATI: {relatif} — tidak ada rekening Tabungan/Giro atau Tabungan Berjangka "
+                             f"yang terbaca di RINCIAN ASET.")
+                    continue
+                data["folder_sumber"] = os.path.relpath(os.path.dirname(file_pdf), folder)
+                data["file"] = os.path.basename(file_pdf)
+                laporan.append(data)
+                for akun in data["rekening"]:
+                    self.log(f"{'PERLU CEK' if akun['catatan'] else 'SESUAI'}: {akun['kategori']} {akun['norek']} "
+                             f"{akun['mata_uang']} {data['periode']} — {len(akun['transaksi'])} transaksi")
+                    for note in akun["catatan"]:
+                        self.log(f"  • {note}")
+                for kat in data["kategori"]:
+                    total = self._teks_uang(kat["total"]) if kat["total"] is not None else "-"
+                    self.log(f"{'PERLU CEK' if kat['catatan'] else 'SESUAI'}: Total {kat['kategori']} "
+                             f"{data['periode']} — {total} (Ekuivalen IDR)")
+                    for note in kat["catatan"]:
+                        self.log(f"  • {note}")
+
+            if not laporan:
+                self.log("Tidak ada data yang ditemukan.")
+                return None, ("Tidak ada laporan CIMB Niaga yang cocok. Gunakan Combine Statement Portfolio "
+                              "(Laporan Konsolidasi) CIMB Niaga yang memiliki lapisan teks.")
+
+            laporan.sort(key=lambda d: (d["cif"], d["tanggal_laporan"], d["file"]))
+            # Tanpa CIF terbaca, laporan yang sama dikenali dari daftar rekeningnya (nasabah lain beda rekening).
+            for salinan in self._tandai_ganda(
+                    laporan, lambda d: (d["cif"] or tuple(a["norek"] for a in d["rekening"]), d["tanggal_laporan"]),
+                    lambda d: [item["catatan"] for item in d["rekening"] + d["kategori"]]):
+                d = salinan[0]
+                self.log(f"PERINGATAN: laporan CIF {d['cif'] or '-'} tanggal {d['tanggal_laporan']:%d-%m-%Y} muncul "
+                         f"di {len(salinan)} PDF: {', '.join(x['file'] for x in salinan)} — ditandai PERLU CEK.")
+
+            output_path = os.path.join(folder, "!Hasil_Rekap_Rekening_CIMB.xlsx")
+            self._write_cimb_excel(laporan, output_path)
+            rekening = [akun for data in laporan for akun in data["rekening"]]
+            perlu_cek = sum(bool(item["catatan"]) for data in laporan for item in data["rekening"] + data["kategori"])
+            self.log(f"Output: {output_path}")
+            return output_path, (f"Selesai — {len(laporan)} laporan, {len(rekening)} rekening, "
+                                 f"{sum(len(akun['transaksi']) for akun in rekening)} transaksi, "
+                                 f"{perlu_cek} perlu dicek, {dilewati} PDF dilewati.")
+        except Exception as e:
+            self.log(f"Error: {str(e)}")
+            raise

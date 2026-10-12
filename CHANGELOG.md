@@ -7,6 +7,48 @@ penomoran versi mengikuti [Semantic Versioning](https://semver.org/lang/id/) den
 `version` di `package.json` sebagai satu-satunya sumber. Versi 1.x memakai penomoran lama
 (`1.1`, `1.2`, …).
 
+## [3.1.0] - 2026-10-12
+
+Alat baru Rekening Koran CIMB Niaga, Penamaan Bupot untuk Bupot 2024 (BPBS), dan penandaan
+rekening koran ganda. Pengguna 3.0.0 menerima versi ini lewat pembaruan otomatis.
+
+### Ditambahkan
+
+- **Rekening Koran CIMB**: merekap Combine Statement Portfolio (Laporan Konsolidasi) CIMB Niaga
+  ke `!Hasil_Rekap_Rekening_CIMB.xlsx`.
+  - Semua transaksi rekening **Tabungan/Giro** dan **Tabungan Berjangka** yang tercantum di
+    RINCIAN ASET, termasuk rekening valas, beserta total kedua kategori (Ekuivalen IDR). Bagian
+    dikenali dari judul dan isinya, bukan dari nomor halaman; deposito, MLD, kartu kredit, dan
+    Poin Xtra diabaikan.
+  - Sheet **Ringkasan** (per rekening, nama sheet dapat diklik), **Total Kategori** (per laporan),
+    **Semua Transaksi** (transaksi seluruh rekening dalam satu tabel, kronologis per rekening),
+    dan satu sheet per rekening per laporan dengan kolom TANGGAL TRANSAKSI, TANGGAL VALUTA,
+    URAIAN TRANSAKSI, NO CEK/BG, DEBIT, KREDIT, dan SALDO; ringkasan PDF di panel kanan.
+  - Uraian yang tertulis beberapa baris tetap satu transaksi: baris dikelompokkan per sel memakai
+    garis batas tabel, dan kolom ditentukan dari garis di bawah judul tabel yang diverifikasi.
+  - Cek otomatis per rekening: debit/kredit terhadap baris Total, saldo berjalan, saldo akhir
+    terhadap daftar aset, dan kelengkapan halaman; per kategori: jumlah saldo Ekuivalen IDR
+    terhadap baris totalnya. Hasilnya **SESUAI** atau **PERLU CEK** beserta alasannya.
+- **Penamaan Bupot** kini membaca **Bupot 2026 (BPPU)** dan **Bupot 2024 (BPBS)** dalam satu
+  folder; jenis formulir dikenali otomatis per PDF. Pada BPBS, nama diambil dari C.2/A.3, nomor
+  dari H.1, masa dari B.1, sifat dari centang H.4/H.5, dan status dari H.2/H.3; PDF dengan data
+  ambigu dilewati, tidak ditebak. Log CSV mencatat kode bagian sumber nama dan kolom `FORMULIR`.
+
+### Diubah
+
+- **Rekening koran ganda ditandai di Excel**: rekening dan periode yang sama di lebih dari satu
+  PDF (BCA maupun CIMB) kini ditandai **PERLU CEK** di setiap salinannya, beserta lokasi salinan
+  lain, agar transaksinya tidak terhitung ganda tanpa terlihat. Sebelumnya hanya ada peringatan di
+  log. Tidak ada PDF yang dibuang.
+- Alat Rekening Koran berganti nama menjadi **Rekening Koran BCA**.
+- Pilihan sumber nama Penamaan Bupot berlaku untuk kedua formulir: **Identitas Pemotong**
+  (BPPU C.3, BPBS C.2) atau **Wajib Pajak yang Dipotong** (BPPU A.2, BPBS A.3).
+- Urutan alat: Bukti Potong 2026, Bukti Potong 2024, Pajak Masukan, Rekening Koran BCA,
+  Rekening Koran CIMB, Penamaan Bupot. Pintasan `Alt+1`–`Alt+6` mengikuti urutan ini
+  (Penamaan Bupot kini `Alt+6`).
+- Identitas installer (GUID) dipatok sama dengan 3.0.0, sehingga pembaruan selalu memasang di
+  tempat yang sama, tidak berdampingan.
+
 ## [3.0.0] - 2026-10-09
 
 Versi besar pertama berbasis Electron: aplikasi desktop baru, alat Rekening Koran BCA,
@@ -154,6 +196,7 @@ pilihan sumber nama pada Penamaan Bupot, dan pembaruan otomatis dari GitHub Rele
 
 - Rilis awal: ekstraksi PDF Bukti Potong dan Pajak Masukan dari Coretax ke Excel.
 
+[3.1.0]: https://github.com/iyansanjaya/ExpCore/compare/v3.0.0...v3.1.0
 [3.0.0]: https://github.com/iyansanjaya/ExpCore/compare/v2.0.1...v3.0.0
 [2.0.1]: https://github.com/iyansanjaya/ExpCore/compare/v2.0.0...v2.0.1
 [2.0.0]: https://github.com/iyansanjaya/ExpCore/compare/v1.5...v2.0.0

@@ -15,3 +15,6 @@ contoh-pdf
 
 # Hasil build renderer (npm run build:renderer)
 app/renderer/dist/
+
+# Laporan crash Nuitka (lokal)
+nuitka-crash-report.xml

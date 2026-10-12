@@ -15,13 +15,15 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 ENGINE_DIST = ROOT / "expcore_engine.dist"
 ELECTRON_BUILDER = ROOT / "node_modules" / "electron-builder" / "cli.js"
-SINGLE_ROW = "Selesai — 1 baris, 3 PDF dilewati."
+SINGLE_ROW = "Selesai — 1 baris, 4 PDF dilewati."
 EXPORTS = {
     "bupot": ("!Hasil_Rekap_Bupot.xlsx", SINGLE_ROW),
     "bupot2024": ("!Hasil_Rekap_Bupot_2024.xlsx", SINGLE_ROW),
     "pm": ("Hasil_Pajak_Masukan.xlsx", SINGLE_ROW),
     "rekening": ("!Hasil_Rekap_Rekening_Koran.xlsx",
-                 "Selesai — 1 rekening koran, 5 transaksi, 0 perlu dicek, 3 PDF dilewati."),
+                 "Selesai — 1 rekening koran, 5 transaksi, 0 perlu dicek, 4 PDF dilewati."),
+    "cimb": ("!Hasil_Rekap_Rekening_CIMB.xlsx",
+             "Selesai — 1 laporan, 4 rekening, 5 transaksi, 0 perlu dicek, 4 PDF dilewati."),
 }
 
 
@@ -43,8 +45,8 @@ def run_engine(engine, *args):
 
 
 def check_engine(engine):
-    """Kelima pekerjaan pada PDF sintetis: import lazy (mis. writer Excel) ikut teruji."""
-    from tests.fixtures import BPPU_NAME, write_all
+    """Keenam pekerjaan pada PDF sintetis: import lazy (mis. writer Excel) ikut teruji."""
+    from tests.fixtures import BPBS_NAME, BPPU_NAME, write_all
 
     with tempfile.TemporaryDirectory() as temp:
         folder = Path(temp) / "uji build"
@@ -56,7 +58,7 @@ def check_engine(engine):
         run_engine(engine, "rename", str(folder), "--nama", "penerima")
         run_engine(engine, "rename", str(folder), "--nama", "pemotong")
         run_engine(engine, "rename", str(folder), "--nama", "pemotong", "--apply")
-        if not (folder / BPPU_NAME).is_file():
+        if not ((folder / BPPU_NAME).is_file() and (folder / BPBS_NAME).is_file()):
             raise RuntimeError("Penamaan pada engine hasil build tidak berjalan.")
 
 

@@ -18,10 +18,12 @@ const SCALE = process.env.EXPCORE_SCALE;
 const PACKAGED = process.env.EXPCORE_APP ? path.resolve(ROOT, process.env.EXPCORE_APP) : null;
 const BPPU_NAME = 'ADIRA DINAMIKA MULTI FINANCE TBK - 25004WOBY - 01-2025 - TIDAK FINAL - NORMAL.pdf';
 const BPPU_A2_NAME = 'MITRACOLL SARANA JAYA - 25004WOBY - 01-2025 - TIDAK FINAL - NORMAL.pdf';
-// Urutan MODULES = urutan menu Alat dan shortcut Alt+1..5.
-const TOOLS = ['bupot', 'bupot2024', 'pm', 'rekening', 'rename'];
+const BPBS_NAME = 'BFI FINANCE INDONESIA TBK - 2000000001 - 01-2024 - TIDAK FINAL - NORMAL.pdf';
+const BPBS_A3_NAME = 'MITRACOLL SARANA JAYA - 2000000001 - 01-2024 - TIDAK FINAL - NORMAL.pdf';
+// Urutan MODULES = urutan menu Alat dan shortcut Alt+1..6.
+const TOOLS = ['bupot', 'bupot2024', 'pm', 'rekening', 'cimb', 'rename'];
 const TITLES = { bupot: 'Bukti Potong 2026', bupot2024: 'Bukti Potong 2024', pm: 'Pajak Masukan',
-  rekening: 'Rekening Koran', rename: 'Penamaan Bupot' };
+  rekening: 'Rekening Koran BCA', cimb: 'Rekening Koran CIMB', rename: 'Penamaan Bupot' };
 
 let app;
 let page;
@@ -232,21 +234,21 @@ describe('ExpCore Electron', () => {
     t.diagnostic(`artefak kegagalan: ${base}.png / .json`);
   });
 
-  it('membuka jendela dengan identitas, lima halaman, dan tanpa error', async () => {
+  it('membuka jendela dengan identitas, enam alat, dan tanpa error', async () => {
     const window = await app.browserWindow(page);
     assert.match(await window.evaluate((w) => w.getTitle()), /^ExpCore \d+\.\d+\.\d+ — Toolkit PDF Coretax$/);
     const version = await app.evaluate(({ app: electronApp }) => electronApp.getVersion());
     assert.equal(await page.textContent('#byline'), `Versi ${version} · by Iyan Sanjaya`);
-    // Header: Beranda + tombol Alat; kelima alat ada di menu Alat (tertutup saat mulai).
+    // Header: Beranda + tombol Alat; keenam alat ada di menu Alat (tertutup saat mulai).
     assert.equal(await page.locator('.nav-item').count(), 2);
-    assert.equal(await page.locator('.tool-card').count(), 5);
+    assert.equal(await page.locator('.tool-card').count(), 6);
     assert.deepEqual(await page.$$eval('.menu-item [data-field="title"]', (els) => els.map((el) => el.textContent)),
       TOOLS.map((key) => TITLES[key]));
     assert.equal(await page.isHidden('#tools-menu'), true);
     assert.equal(await page.getAttribute('#tools-trigger', 'aria-expanded'), 'false');
-    // Kartu kelima (sendirian di baris terakhir) melebar dua kolom.
+    // Enam kartu mengisi dua kolom penuh; tidak ada kartu sendirian yang melebar.
     const [first, last] = await page.$$eval('.tool-card', (els) => [els[0], els.at(-1)].map((el) => el.getBoundingClientRect().width));
-    assert.ok(last > first * 1.9, `kartu terakhir ${last} vs ${first}`);
+    assert.ok(Math.abs(last - first) < 1, `kartu terakhir ${last} vs ${first}`);
     // Semua placeholder ikon diganti SVG Reicon; ikon dekoratif disembunyikan dari pembaca layar.
     assert.equal(await page.locator('[data-icon]').count(), 0);
     const icons = await page.$$eval('svg.reicon', (els) => els.map((el) => el.getAttribute('aria-hidden')));
@@ -259,11 +261,14 @@ describe('ExpCore Electron', () => {
     assert.deepEqual(page.errors, []);
     assert.equal(await app.evaluate(({ app: electronApp }) => electronApp.isPackaged), Boolean(PACKAGED));
     // AUMID jendela harus sama dengan appId installer agar shortcut dan taskbar menyatu.
-    const appId = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8')).build.appId;
-    assert.ok(fs.readFileSync(path.join(ROOT, 'app', 'main.js'), 'utf8').includes(`const APP_ID = '${appId}';`));
+    const { build } = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
+    assert.ok(fs.readFileSync(path.join(ROOT, 'app', 'main.js'), 'utf8').includes(`const APP_ID = '${build.appId}';`));
+    // GUID installer = kunci registry Uninstall ExpCore 3.x (dulu diturunkan electron-builder dari appId).
+    // Jangan pernah diubah: GUID lain membuat installer baru terpasang berdampingan dengan versi lama.
+    assert.equal(build.nsis.guid, '3d25c37a-f1b9-5b71-aaa6-3b5abfae652c');
   });
 
-  it('navigasi lewat menu Alat, kartu beranda, dan Alt+0..5', async () => {
+  it('navigasi lewat menu Alat, kartu beranda, dan Alt+0..6', async () => {
     const expectPage = async (key) => {
       assert.equal(await page.isVisible(key === 'home' ? '#page-home' : tool(key)), true, key);
       assert.equal(await page.locator('[id^="page-"]:visible').count(), 1);
@@ -290,7 +295,8 @@ describe('ExpCore Electron', () => {
     await page.click('.open-tool[data-page="rename"]');
     await expectPage('rename');
     assert.equal(await focused(), 'Penamaan Bupot');
-    for (const [index, key] of [[1, 'bupot'], [2, 'bupot2024'], [3, 'pm'], [4, 'rekening'], [5, 'rename'], [0, 'home']]) {
+    for (const [index, key] of [[1, 'bupot'], [2, 'bupot2024'], [3, 'pm'], [4, 'rekening'], [5, 'cimb'], [6, 'rename'],
+      [0, 'home']]) {
       await page.keyboard.press(`Alt+${index}`);
       await expectPage(key);
     }
@@ -311,7 +317,7 @@ describe('ExpCore Electron', () => {
       requestAnimationFrame(tick);
     });
     for (let round = 0; round < 4; round += 1) {
-      for (const digit of [1, 0, 4, 2, 0, 5, 3, 0]) await page.keyboard.press(`Alt+${digit}`);
+      for (const digit of [1, 0, 4, 2, 0, 6, 3, 5, 0]) await page.keyboard.press(`Alt+${digit}`);
     }
     await page.waitForTimeout(700);
     const watch = await page.evaluate(() => { window.__pill.on = false; return window.__pill; });
@@ -324,7 +330,7 @@ describe('ExpCore Electron', () => {
     await page.keyboard.press('Alt+0');
     assert.deepEqual(await page.$$eval('#tools-menu ul', (lists) => lists.map((list) => [list.getAttribute('aria-label'),
       [...list.querySelectorAll('.menu-item')].map((item) => item.dataset.page)])),
-    [['Ekstraksi ke Excel', ['bupot', 'bupot2024', 'pm', 'rekening']], ['Kelola PDF', ['rename']]]);
+    [['Ekstraksi ke Excel', ['bupot', 'bupot2024', 'pm', 'rekening', 'cimb']], ['Kelola PDF', ['rename']]]);
     // Klik membuka, klik di luar menutup, klik tombol lagi juga menutup.
     await page.click('#tools-trigger');
     assert.equal(await expanded(), 'true');
@@ -359,7 +365,7 @@ describe('ExpCore Electron', () => {
     await page.keyboard.press('Enter');
     assert.equal(await expanded(), 'false');
     assert.equal(await page.isVisible(tool('rekening')), true);
-    assert.equal(await focused(), 'Rekening Koran');
+    assert.equal(await focused(), 'Rekening Koran BCA');
 
     // Tab keluar dari daftar menutupnya.
     await page.focus('#tools-trigger');
@@ -538,11 +544,13 @@ describe('ExpCore Electron', () => {
   });
 
   for (const [key, output, summary] of [
-    ['bupot', '!Hasil_Rekap_Bupot.xlsx', 'Selesai — 1 baris, 3 PDF dilewati.'],
-    ['bupot2024', '!Hasil_Rekap_Bupot_2024.xlsx', 'Selesai — 1 baris, 3 PDF dilewati.'],
-    ['pm', 'Hasil_Pajak_Masukan.xlsx', 'Selesai — 1 baris, 3 PDF dilewati.'],
+    ['bupot', '!Hasil_Rekap_Bupot.xlsx', 'Selesai — 1 baris, 4 PDF dilewati.'],
+    ['bupot2024', '!Hasil_Rekap_Bupot_2024.xlsx', 'Selesai — 1 baris, 4 PDF dilewati.'],
+    ['pm', 'Hasil_Pajak_Masukan.xlsx', 'Selesai — 1 baris, 4 PDF dilewati.'],
     ['rekening', '!Hasil_Rekap_Rekening_Koran.xlsx',
-      'Selesai — 1 rekening koran, 5 transaksi, 0 perlu dicek, 3 PDF dilewati.'],
+      'Selesai — 1 rekening koran, 5 transaksi, 0 perlu dicek, 4 PDF dilewati.'],
+    ['cimb', '!Hasil_Rekap_Rekening_CIMB.xlsx',
+      'Selesai — 1 laporan, 4 rekening, 5 transaksi, 0 perlu dicek, 4 PDF dilewati.'],
   ]) {
     it(`ekstraksi ${key}: PDF -> Excel, ringkasan, log, dan Buka hasil`, async () => {
       const folder = fixtures(`Ekstraksi ${key} — Ünïcode`);
@@ -553,7 +561,7 @@ describe('ExpCore Electron', () => {
       assert.ok(fs.statSync(path.join(folder, output)).size > 0);
       assert.equal(await page.textContent(`${tool(key)} [data-field="summary"]`), summary);
       const log = await page.textContent(`${tool(key)} .log`);
-      assert.match(log, /^\d\d:\d\d:\d\d {3}Memproses 4 file …\n/);
+      assert.match(log, /^\d\d:\d\d:\d\d {3}Memproses 5 file …\n/);
       assert.match(log, /Membaca sub[\\/]bppu\.pdf/);
       assert.ok(log.trimEnd().endsWith(summary), log);
       assert.equal(await page.getAttribute(`${tool(key)} .progress`, 'aria-valuenow'), '100');
@@ -590,7 +598,7 @@ describe('ExpCore Electron', () => {
     assert.deepEqual((await calls()).dialogs, []);
 
     await runTo('rename', 'SELESAI');
-    assert.match(await page.textContent(`${tool('rename')} [data-field="summary"]`), /^Pratinjau selesai — 1 siap\/berhasil/);
+    assert.match(await page.textContent(`${tool('rename')} [data-field="summary"]`), /^Pratinjau selesai — 2 siap\/berhasil/);
     assert.ok(fs.existsSync(path.join(folder, 'sub', 'bppu.pdf')), 'pratinjau tidak mengubah nama');
     assert.equal(await page.isEnabled(`${tool('rename')} .apply`), true);
 
@@ -610,9 +618,12 @@ describe('ExpCore Electron', () => {
 
     await stubMain({ answer: 0 });
     await runTo('rename', 'SELESAI', '.apply');
-    assert.match(await page.textContent(`${tool('rename')} [data-field="summary"]`), /^Penerapan selesai — 1 siap\/berhasil/);
-    assert.ok(fs.existsSync(path.join(folder, 'sub', BPPU_NAME)));
-    assert.ok(!fs.existsSync(path.join(folder, 'sub', 'bppu.pdf')));
+    assert.match(await page.textContent(`${tool('rename')} [data-field="summary"]`), /^Penerapan selesai — 2 siap\/berhasil/);
+    // Bupot 2026 (BPPU) dan 2024 (BPBS) dalam folder yang sama sama-sama diberi nama.
+    for (const [before, after] of [['bppu.pdf', BPPU_NAME], ['bpbs.pdf', BPBS_NAME]]) {
+      assert.ok(fs.existsSync(path.join(folder, 'sub', after)), after);
+      assert.ok(!fs.existsSync(path.join(folder, 'sub', before)), before);
+    }
     assert.equal(await page.isDisabled(`${tool('rename')} .apply`), true, 'penerapan baru perlu pratinjau baru');
     await page.click(`${tool('rename')} .open`);
     assert.deepEqual(await eventually(async () => (await calls()).opened.length && (await calls()).opened), [folder],
@@ -629,8 +640,8 @@ describe('ExpCore Electron', () => {
     // Bawaan: Identitas Pemotong (C.3); pilihan berupa radio asli yang dapat dipilih dengan panah.
     assert.equal(await page.isChecked(radio('pemotong')), true);
     assert.deepEqual(await page.$$eval(`${tool('rename')} .name-source .source-option`, (els) => els.map((el) => el.textContent)),
-      ['Identitas PemotongC.3 · Nama pemotong dan/atau pemungut PPh',
-        'Wajib Pajak yang DipotongA.2 · Nama identitas wajib pajak yang dipotong']);
+      ['Identitas PemotongBPPU C.3 · BPBS C.2 — nama pemotong/pemungut PPh',
+        'Wajib Pajak yang DipotongBPPU A.2 · BPBS A.3 — nama wajib pajak yang dipotong']);
     await page.focus(radio('pemotong'));
     await page.keyboard.press('ArrowRight');
     assert.equal(await page.isChecked(radio('penerima')), true);
@@ -653,11 +664,13 @@ describe('ExpCore Electron', () => {
     const csvName = fs.readdirSync(folder).filter((name) => name.includes('_Pratinjau_')).sort().at(-1);
     const csvText = fs.readFileSync(path.join(folder, csvName), 'utf8');
     assert.ok(csvText.includes(`SIAP,sub,bppu.pdf,${BPPU_A2_NAME}`), csvText);
-    assert.match(await page.textContent(`${tool('rename')} .log`), /Pratinjau: memeriksa 4 PDF … \(nama dari Wajib Pajak yang Dipotong \(A\.2\)\)/);
+    assert.ok(csvText.includes(`SIAP,sub,bpbs.pdf,${BPBS_A3_NAME}`), csvText);
+    assert.match(await page.textContent(`${tool('rename')} .log`), /Pratinjau: memeriksa 5 PDF … \(nama dari Wajib Pajak yang Dipotong\)/);
+    assert.match(await page.textContent(`${tool('rename')} .log`), / \[BPBS\]\n/);
     await runTo('rename', 'SELESAI', '.apply');
     const [dialog] = (await calls()).dialogs;
     assert.match(dialog.detail, /memakai nama dari Wajib Pajak yang Dipotong\./);
-    assert.ok(fs.existsSync(path.join(folder, 'sub', BPPU_A2_NAME)));
+    assert.ok(fs.existsSync(path.join(folder, 'sub', BPPU_A2_NAME)) && fs.existsSync(path.join(folder, 'sub', BPBS_A3_NAME)));
     assert.ok(!fs.existsSync(path.join(folder, 'sub', 'bppu.pdf')) && !fs.existsSync(path.join(folder, 'sub', BPPU_NAME)));
   });
 
@@ -689,7 +702,7 @@ describe('ExpCore Electron', () => {
     const progress = Number(await page.getAttribute(`${tool('pm')} .progress`, 'aria-valuenow'));
     assert.ok(progress < 100 && await status('pm') === 'MEMPROSES', `progres determinan saat berjalan: ${progress}`);
     await waitFor(() => document.querySelector('#page-pm [data-field="status"]').textContent === 'SELESAI', null, { timeout: 120000 });
-    assert.equal(await page.textContent(`${tool('pm')} [data-field="summary"]`), 'Selesai — 40 baris, 81 PDF dilewati.');
+    assert.equal(await page.textContent(`${tool('pm')} [data-field="summary"]`), 'Selesai — 40 baris, 82 PDF dilewati.');
     assert.equal(await page.getAttribute('.menu-item[data-page="pm"]', 'aria-busy'), 'false');
     assert.equal(await page.isHidden('#tools-trigger .busy-dot'), true);
     assert.equal(await page.$eval('.menu-item[data-page="pm"] .busy-dot', (el) => el.hidden), true);
@@ -787,7 +800,7 @@ describe('ExpCore Electron', () => {
     await page.$eval(scroll, (el) => { el.scrollTop = el.scrollHeight; });
     await waitFor(() => [...document.querySelectorAll('#page-home [data-reveal]')]
       .every((el) => Number(getComputedStyle(el).opacity) > 0.999), null, { timeout: 5000 });
-    assert.equal(await page.locator('#page-home [data-reveal]').count(), 14); // termasuk lima kartu alat
+    assert.equal(await page.locator('#page-home [data-reveal]').count(), 15); // termasuk enam kartu alat
     await page.$eval(scroll, (el) => { el.scrollTop = 0; });
   });
 

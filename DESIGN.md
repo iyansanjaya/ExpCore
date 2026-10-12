@@ -56,14 +56,14 @@ pengembangan), `build_engine()` di `build_release.py` (engine Nuitka), dan `win.
   menggeser Beranda. Pill memotong (`overflow-hidden`) indikator yang sedang meluncur, dan
   pegas indikator dimulai dengan kecepatan 0.
   *Kode:* `moveIndicator()` dan `navigate()` di `app/renderer/src/app.js`.
-  *Diuji:* tes "navigasi lewat menu Alat, kartu beranda, dan Alt+0..5" (lebar indikator diukur
+  *Diuji:* tes "navigasi lewat menu Alat, kartu beranda, dan Alt+0..6" (lebar indikator diukur
   tiap frame) dan "tata letak responsif tanpa overflow…", memakai `openTool()` dan `setSize()` di `tests/app.test.js`.
 - **Menu Alat** (pola disclosure: tombol `aria-expanded` + daftar tombol, bukan `role="menu"`):
   panel putih 360 px di bawah navigasi (rata kiri dengan pill), dikelompokkan **Ekstraksi ke Excel** dan **Kelola PDF**.
   Setiap baris berisi ikon Reicon dalam kotak lavender, judul, keterangan singkat, dan
   shortcut; alat aktif berlatar lavender, ikon ungu penuh, dan centang. Ikon: `ReceiptText`
-  (Bupot 2026), `Receipt` (Bupot 2024), `Invoice` (Pajak Masukan), `Bank` (Rekening Koran),
-  `Edit2` (Penamaan Bupot), `Category` dan `ChevronDown` untuk tombolnya.
+  (Bupot 2026), `Receipt` (Bupot 2024), `Invoice` (Pajak Masukan), `Bank` (Rekening Koran BCA),
+  `Bank3` (Rekening Koran CIMB), `Edit2` (Penamaan Bupot), `Category` dan `ChevronDown` untuk tombolnya.
   - Di halaman alat, tombol menampilkan **Alat · nama alat** dan berada di bawah pill
     indikator; di beranda tombol yang terbuka berlatar `brand-50`.
   - Titik berdenyut muncul di tombol Alat dan di baris alat yang sedang memproses
@@ -80,8 +80,8 @@ pengembangan), `build_engine()` di `build_release.py` (engine Nuitka), dan `win.
   *Diuji:* tes "menu Alat: grup, klik di luar, Esc, panah, Enter, Tab keluar…" memakai `focused()` dan
   `setSize()` di `tests/app.test.js`.
 - **Beranda** bergaya landing page: hero dengan kartu PDF → XLSX → CSV yang melayang,
-  chip fitur, kartu bento kelima alat (kartu terakhir yang sendirian di barisnya melebar
-  dua kolom dengan pratinjau di kanan), panel lavender "Kenapa ExpCore?", banner
+  chip fitur, kartu bento keenam alat dalam dua kolom (bila jumlah alat ganjil, kartu terakhir
+  yang sendirian di barisnya melebar dua kolom dengan pratinjau di kanan), panel lavender "Kenapa ExpCore?", banner
   ajakan ungu, dan footer navy. Elemen muncul bertahap (stagger) saat masuk pandangan.
   *Kode:* `revealHero()` dan `revealSectionsInView()` di `app/renderer/src/app.js`.
   *Diuji:* tes "animasi beranda: hero bergerak, setiap bagian muncul penuh saat digulir" memakai
@@ -92,14 +92,16 @@ pengembangan), `build_engine()` di `build_release.py` (engine Nuitka), dan `win.
   *Kode:* `buildTool()` di `app/renderer/src/app.js`.
   *Diuji:* tes "ekstraksi …: PDF -> Excel, ringkasan, log, dan Buka hasil" untuk keempat ekstraksi,
   memakai `setFolder()`, `runTo()`, dan `fixtures()` di `tests/app.test.js`.
-- **Penamaan Bupot** menambahkan pilihan **Ambil nama file dari** di kartu 01: dua kartu
-  radio, **Identitas Pemotong** (C.3, bawaan) dan **Wajib Pajak yang Dipotong** (A.2).
+- **Penamaan Bupot** membaca Bupot 2026 (BPPU) dan Bupot 2024 (BPBS) sekaligus; jenis formulir
+  dikenali per PDF dan ditandai `[BPPU]`/`[BPBS]` di log. Pilihan **Ambil nama file dari** di
+  kartu 01 berupa dua kartu radio, **Identitas Pemotong** (BPPU C.3 · BPBS C.2, bawaan) dan
+  **Wajib Pajak yang Dipotong** (BPPU A.2 · BPBS A.3).
   Input radio asli tetap menerima fokus dan tombol panah; kartu terpilih bergaris ungu.
   Mengganti sumber membatalkan pratinjau. Proses main hanya menerima penerapan untuk
   folder dan sumber nama yang sama dengan pratinjau terakhir. *Kode:* `buildNameSources()`
   dan `nameSourceChanged()` di `app/renderer/src/app.js`; `startJob()` di `app/main.js`;
   `.source-option` di `app/renderer/src/styles.css`.
-  *Diuji:* `test_rename_pemotong()` di `test_expcore.py`; tes E2E "penamaan: sumber nama C.3 atau A.2,
+  *Diuji:* `test_rename_pemotong()` dan `test_rename_bpbs()` di `test_expcore.py`; tes E2E "penamaan: sumber nama C.3 atau A.2,
   pratinjau terikat pada sumbernya" memakai `setFolder()`, `runTo()`, dan `stubMain()` di `tests/app.test.js`.
 - Field folder 48 px dengan ikon; jalur dapat diketik, ditempel dari "Copy as path"
   Explorer (bertanda kutip), atau dipilih lewat dialog native. *Kode:* `browse()` dan
@@ -150,7 +152,7 @@ pengembangan), `build_engine()` di `build_release.py` (engine Nuitka), dan `win.
   update lokal) di `tests/update.test.js`.
 - Ukuran awal menyesuaikan layar dan DPI. Ukuran minimum: 960 × 620 logical px.
   *Kode:* `createWindow()` di `app/main.js`.
-  *Diuji:* tes "membuka jendela dengan identitas, lima halaman, dan tanpa error" dan `setSize()` di
+  *Diuji:* tes "membuka jendela dengan identitas, enam alat, dan tanpa error" dan `setSize()` di
   `tests/app.test.js`.
 
 ## Gerak
@@ -176,7 +178,7 @@ media query di `app/renderer/src/styles.css`.
 | `Enter` / `Space` pada tombol | Aktifkan tombol |
 | `Ctrl+O` | Pilih folder pada alat aktif |
 | `Alt+0` | Beranda |
-| `Alt+1`–`Alt+5` | Alat sesuai urutan menu Alat |
+| `Alt+1`–`Alt+6` | Alat sesuai urutan menu Alat |
 | `↓` / `↑` pada tombol Alat | Buka menu di alat aktif / alat terakhir |
 | `↓` `↑` `Home` `End` di menu Alat | Pindah antaralat; `Enter` membuka, `Esc` menutup |
 | `←` / `→` pada sumber nama | Ganti sumber nama Penamaan Bupot (radio asli) |
@@ -217,20 +219,24 @@ kedua tidak membuka jendela baru" (memakai `launch()`) di `tests/app.test.js`.
 
 ## Pemeriksaan
 
-`test_expcore.py` mencakup parser, penamaan dengan sumber nama C.3 dan A.2 (tanpa
-fallback), ekspor empat modul termasuk rekening koran, subfolder, kelanjutan batch saat
+`test_expcore.py` mencakup parser, penamaan BPPU dan BPBS dengan kedua sumber nama (tanpa
+fallback, data BPBS ambigu tidak ditebak), ekspor lima modul termasuk rekening koran BCA dan CIMB, subfolder, kelanjutan batch saat
 PDF rusak, dan protokol engine pada PDF sintetis (`tests/fixtures.py`). e-Statement
 sintetis dua halaman menguji kolom berbasis posisi, debit bertanda DB, keterangan yang
 berlanjut ke halaman berikutnya, serta setiap jenis selisih terhadap ringkasan PDF.
+Combine Statement Portfolio CIMB sintetis menguji uraian beberapa baris dalam satu sel,
+tabel yang berlanjut ke halaman berikutnya, rekening di luar Tabungan/Giro dan Tabungan
+Berjangka yang diabaikan, judul tabel tak dikenal tanpa nominal yang ditebak, serta setiap
+jenis selisih: baris Total, saldo berjalan, daftar aset, total kategori, dan kelengkapan halaman.
 Opsi `--pdf-samples` memeriksa PDF contoh lokal di `contoh-pdf/` tanpa mengubah dokumen.
-*Kode:* `test_engine_protocol()`, `test_rename_pemotong()`, `test_rekening_koran()`, dan
-`test_pdf_samples()` di `test_expcore.py`; `write_all()` dan `write_rekening()` di
-`tests/fixtures.py`.
+*Kode:* `test_engine_protocol()`, `test_rename_pemotong()`, `test_rename_bpbs()`, `test_rekening_koran()`,
+`test_rekening_cimb()`, dan `test_pdf_samples()` di `test_expcore.py`; `write_all()`,
+`write_rekening()`, dan `write_cimb()` di `tests/fixtures.py`.
 
 `npm test` menjalankan `tests/engine.test.js` (kontrak runner) dan `tests/app.test.js`
 (E2E Electron + engine): navigasi dan indikatornya, tata letak responsif tanpa overflow
 dan header yang tidak bertumpuk, menu Alat (klik, keyboard, klik di luar, Tab keluar, posisi
-panel), ikon, font, roda mouse, keyboard, kelima alat,
+panel), ikon, font, roda mouse, keyboard, keenam alat,
 sumber nama penamaan, konfirmasi, penguncian saat memproses, animasi masuk, mode gerak dikurangi, isolasi
 renderer, dan satu instance. Atur `EXPCORE_SCALE=1.25` atau `1.5` untuk pembesaran
 tampilan. Dengan `EXPCORE_APP=dist/win-unpacked/ExpCore.exe`, tes yang sama berjalan
@@ -239,6 +245,20 @@ server lokal. Tes yang gagal menyimpan screenshot dan keadaan UI di
 `%TEMP%\expcore-e2e-artefak`. *Kode:* `runTo()`, `setSize()`, dan `logBaseline()` di
 `tests/app.test.js`; `fake()` di `tests/engine.test.js`; `manualCheck()` di
 `tests/update.test.js`.
+
+## Hasil verifikasi (9 Oktober 2026): Penamaan Bupot untuk BPPU + BPBS
+
+- **PDF asli:** BPBS `BUPOT 2024.pdf` sebelumnya terbaca keliru oleh parser BPPU (nomor dari kode
+  verifikasi `9PT5ZJ6S`, sifat FINAL dari label H.4 tanpa centang, status "PEMBETULAN KE- 0")
+  dan hanya selamat karena namanya kosong. Kini terbaca 2000000001 · 01-2024 · TIDAK FINAL ·
+  NORMAL dengan nama C.2 atau A.3; BPPU asli tetap identik dengan sebelumnya.
+- **Tes:** `test_rename_bpbs()` mencakup deteksi formulir, status dari H.2/H.3, sifat yang
+  ambigu, masa berbeda, nama kosong, folder campuran, penerapan ulang, dan nama ganda; tiga
+  mutasi (deteksi dimatikan, sifat ditebak, status bawaan) semuanya tertangkap.
+  `test_expcore.py --pdf-samples` lulus 3 kali; E2E mode pengembangan 30/30 pada skala 100%,
+  125%, dan 150%, dua putaran; aplikasi hasil paket 34 lulus + 1 dilewati pada ketiga skala.
+- **Engine Nuitka:** `check_engine()` saat build memastikan BPPU dan BPBS diberi nama, dan CSV
+  penamaan dari engine Nuitka identik dengan engine Python untuk kedua sumber nama.
 
 ## Hasil verifikasi (9 Oktober 2026): sumber nama & Rekening Koran
 

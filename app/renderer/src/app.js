@@ -4,13 +4,13 @@
 import '@fontsource-variable/inter/wght.css';
 import { animate, inView, stagger } from 'motion';
 import {
-  ArrowRight, ArrowUpRight, Bank, Category, ChevronDown, ClipboardText, Copy, DocumentText, Download, Edit2, Eye,
+  ArrowRight, ArrowUpRight, Bank, Bank3, Category, ChevronDown, ClipboardText, Copy, DocumentText, Download, Edit2, Eye,
   FilePdf, FolderOpen, Grid, InfoCircle, Invoice, Layers, Lock, Receipt, ReceiptText, Refresh, ShieldCheck,
   Sparkles, TickCircle,
 } from 'reicon';
 
 const ICONS = {
-  ArrowRight, ArrowUpRight, Bank, Category, ChevronDown, ClipboardText, Copy, DocumentText, Download, Edit2, Eye,
+  ArrowRight, ArrowUpRight, Bank, Bank3, Category, ChevronDown, ClipboardText, Copy, DocumentText, Download, Edit2, Eye,
   FilePdf, FolderOpen, Grid, InfoCircle, Invoice, Layers, Lock, Receipt, ReceiptText, Refresh, ShieldCheck,
   Sparkles, TickCircle,
 };
@@ -64,6 +64,12 @@ const PREVIEWS = {
       <span class="rounded-lg bg-white px-2 py-1 text-[10.5px] font-medium text-ink-soft shadow-soft">Saldo awal</span>
       <span class="rounded-lg bg-white px-2 py-1 text-[10.5px] font-medium text-ink-soft shadow-soft">Mutasi CR/DB</span>
       <span class="rounded-lg bg-white px-2 py-1 text-[10.5px] font-medium text-emerald-700 shadow-soft">Saldo akhir ✓</span>
+    </div>`,
+  cimb: `
+    <div class="space-y-1.5">
+      <div class="flex items-center justify-between rounded-lg bg-white px-3 py-1.5 text-[11px] shadow-soft"><span class="font-medium">Tabungan/Giro</span><span class="text-ink-muted">IDR · USD</span></div>
+      <div class="flex items-center justify-between rounded-lg bg-white px-3 py-1.5 text-[11px] shadow-soft"><span class="font-medium">Tabungan Berjangka</span><span class="text-ink-muted">USD</span></div>
+      <div class="flex items-center justify-between rounded-lg bg-white/70 px-3 py-1.5 text-[11px] text-ink-muted"><span>Total Ekuivalen IDR</span><span class="font-medium text-emerald-700">Cocok ✓</span></div>
     </div>`,
 };
 

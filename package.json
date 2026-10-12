@@ -1,7 +1,7 @@
 {
   "name": "expcore",
   "productName": "ExpCore",
-  "version": "3.0.0",
+  "version": "3.1.0",
   "description": "Toolkit PDF Coretax",
   "author": "Iyan Sanjaya",
   "license": "Apache-2.0",
@@ -63,6 +63,7 @@
       "executableName": "ExpCore"
     },
     "nsis": {
+      "guid": "3d25c37a-f1b9-5b71-aaa6-3b5abfae652c",
       "oneClick": false,
       "perMachine": true,
       "allowToChangeInstallationDirectory": false,

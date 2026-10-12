@@ -34,7 +34,7 @@ const MODULES = {
     output: 'Hasil_Pajak_Masukan.xlsx',
   },
   rekening: {
-    title: 'Rekening Koran', tag: 'BCA', number: '04',
+    title: 'Rekening Koran BCA', tag: 'BCA', number: '04',
     group: 'Ekstraksi ke Excel', icon: 'Bank', brief: 'e-Statement BCA Giro & Tahapan',
     description: 'Mutasi rekening per bulan, debit dan kredit terpisah.',
     detail: 'e-Statement Giro & Tahapan · Debit, kredit, saldo & ringkasan',
@@ -42,17 +42,29 @@ const MODULES = {
       + 'satu sheet; total, jumlah transaksi, dan saldo dicocokkan dengan ringkasan di akhir PDF.',
     output: '!Hasil_Rekap_Rekening_Koran.xlsx',
   },
+  cimb: {
+    title: 'Rekening Koran CIMB', tag: 'CIMB NIAGA', number: '05',
+    group: 'Ekstraksi ke Excel', icon: 'Bank3', brief: 'Combine Statement Portfolio CIMB Niaga',
+    description: 'Mutasi Tabungan/Giro dan Tabungan Berjangka, satu sheet per rekening.',
+    detail: 'Laporan Konsolidasi · Tabungan/Giro, Tabungan Berjangka, saldo & total',
+    hint: 'Gunakan Combine Statement Portfolio (Laporan Konsolidasi) CIMB Niaga yang teksnya dapat diseleksi. '
+      + 'Bagian dikenali dari judulnya di RINCIAN ASET, bukan dari nomor halaman. Total debit/kredit, saldo '
+      + 'berjalan, saldo di daftar aset, dan total Tabungan/Giro serta Tabungan Berjangka dicocokkan otomatis.',
+    output: '!Hasil_Rekap_Rekening_CIMB.xlsx',
+  },
   rename: {
-    title: 'Penamaan Bupot', tag: 'PENGELOLAAN PDF', number: '05',
-    group: 'Kelola PDF', icon: 'Edit2', brief: 'Nama file BPPU, pratinjau & log CSV',
+    title: 'Penamaan Bupot', tag: 'PENGELOLAAN PDF', number: '06',
+    group: 'Kelola PDF', icon: 'Edit2', brief: 'Bupot 2026 & 2024, pratinjau & log CSV',
     description: 'Nama file yang konsisten. Dokumen lebih mudah ditemukan.',
-    detail: 'BPPU Coretax · Nama pemotong atau dipotong, log audit CSV',
-    hint: 'Periksa pratinjau sebelum menerapkan. PDF yang nama pada sumber terpilihnya kosong dilewati, tanpa memakai nama lain.',
+    detail: 'Bupot 2026 (BPPU) & 2024 (BPBS) · Nama pemotong atau dipotong, log audit CSV',
+    hint: 'Membaca Bupot 2026 (BPPU Coretax) dan Bupot 2024 (BPBS) dalam satu folder; jenis formulir dikenali '
+      + 'otomatis. Periksa pratinjau sebelum menerapkan. PDF yang nama pada sumber terpilihnya kosong dilewati, '
+      + 'tanpa memakai nama lain.',
     output: 'Log penamaan .csv',
     // Kunci = nilai --nama engine. Yang pertama adalah pilihan bawaan.
     nameSources: {
-      pemotong: { title: 'Identitas Pemotong', detail: 'C.3 · Nama pemotong dan/atau pemungut PPh' },
-      penerima: { title: 'Wajib Pajak yang Dipotong', detail: 'A.2 · Nama identitas wajib pajak yang dipotong' },
+      pemotong: { title: 'Identitas Pemotong', detail: 'BPPU C.3 · BPBS C.2 — nama pemotong/pemungut PPh' },
+      penerima: { title: 'Wajib Pajak yang Dipotong', detail: 'BPPU A.2 · BPBS A.3 — nama wajib pajak yang dipotong' },
     },
   },
 };
