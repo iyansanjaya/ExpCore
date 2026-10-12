@@ -32,7 +32,8 @@ rekening koran ganda. Pengguna 3.0.0 menerima versi ini lewat pembaruan otomatis
 - **Penamaan Bupot** kini membaca **Bupot 2026 (BPPU)** dan **Bupot 2024 (BPBS)** dalam satu
   folder; jenis formulir dikenali otomatis per PDF. Pada BPBS, nama diambil dari C.2/A.3, nomor
   dari H.1, masa dari B.1, sifat dari centang H.4/H.5, dan status dari H.2/H.3; PDF dengan data
-  ambigu dilewati, tidak ditebak. Log CSV mencatat kode bagian sumber nama dan kolom `FORMULIR`.
+  ambigu dilewati, tidak ditebak. Log CSV mencatat kode bagian sumber nama dan kolom `FORMULIR`,
+  dan log aktivitas menandai setiap PDF dengan `[BPPU]` atau `[BPBS]`.
 
 ### Diubah
 
