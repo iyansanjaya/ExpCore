@@ -5,13 +5,34 @@ import bisect
 import csv
 import unicodedata
 import pdfplumber
-import pandas as pd
+from concurrent.futures import ProcessPoolExecutor
+from functools import partial
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.hyperlink import Hyperlink
 from datetime import datetime
 from decimal import Decimal
+
+
+def _baca_aman(pembaca, path):
+    """Satu PDF: (hasil, None), atau (None, pesan galat) agar satu PDF rusak tidak menghentikan batch."""
+    try:
+        return pembaca(path), None
+    except Exception as error:
+        return None, str(error)
+
+
+def _baca_teks(ekstrak, path):
+    """Teks seluruh halaman satu PDF ke `ekstrak` (Bupot 2026 dan 2024)."""
+    with pdfplumber.open(path) as pdf:
+        return ekstrak("\n".join(p.extract_text() or "" for p in pdf.pages))
+
+
+def _baca_halaman(ekstrak, path):
+    """Halaman pdfplumber satu PDF ke `ekstrak` (rekening koran BCA dan CIMB)."""
+    with pdfplumber.open(path) as pdf:
+        return ekstrak(pdf.pages)
 
 
 class ExpCore:
@@ -24,47 +45,71 @@ class ExpCore:
         "penerima": ("NAMA_PENERIMA", "Wajib Pajak yang Dipotong", {"BPPU": "A.2", "BPBS": "A.3"}),
     }
 
-    def __init__(self, log=None, progress=None):
+    def __init__(self, log=None, progress=None, workers=None):
         self.log = log or (lambda message: None)
         self.progress = progress or (lambda done, total: None)
+        # ponytail: maks 4 proses pembaca PDF; tiap proses butuh ~0,4 s untuk mulai, jadi beberapa PDF tipis
+        # bisa ~0,2 s lebih lambat daripada serial. Naikkan (6 terukur lebih cepat) bila memori pengguna cukup.
+        self.workers = workers or min(os.cpu_count() or 1, 4)
+
+    def _peta_pdf(self, pembaca, pdf_files):
+        """(hasil, galat) per PDF, urut sesuai pdf_files.
+
+        pdfminer murni Python sehingga satu proses hanya memakai satu inti CPU: lebih dari satu PDF dibaca
+        paralel di proses terpisah. Log, progres, dan penulisan Excel tetap di proses ini, dalam urutan file.
+        """
+        workers = min(self.workers, len(pdf_files))
+        if workers <= 1:
+            yield from (_baca_aman(pembaca, path) for path in pdf_files)
+            return
+        # Di Windows, pekerja mewarisi stdout engine yang berisi protokol JSON: dup2(2, 1) mengarahkannya ke
+        # stderr di tingkat descriptor agar print() maupun keluaran pustaka C tidak mencemari protokol.
+        with ProcessPoolExecutor(workers, initializer=partial(os.dup2, 2, 1)) as pool:
+            yield from pool.map(partial(_baca_aman, pembaca), pdf_files)
 
     @staticmethod
-    def _write_excel(df, output_path, sheet_name, text_cols=(), money_cols=()):
-        """Tulis DataFrame ke Excel dengan header, format angka, dan lebar kolom.
+    def _write_excel(rows, output_path, sheet_name, text_cols=(), money_cols=(), center_cols=("No",)):
+        """Tulis baris (dict, kolom = kunci baris pertama) ke Excel dengan header, format angka, dan lebar kolom.
 
         text_cols dipaksa format teks agar NPWP, masa pajak, dan nomor dokumen
         tidak diubah Excel jadi angka atau tanggal.
         """
-        with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
-            df.to_excel(writer, index=False, sheet_name=sheet_name)
-            ws = writer.sheets[sheet_name]
+        book = Workbook()
+        ws = book.active
+        ws.title = sheet_name
+        columns = list(rows[0])
+        ws.append(columns)
+        for row in rows:
+            ws.append([row.get(col) for col in columns])
 
-            for cell in ws[1]:
-                cell.fill = PatternFill(start_color="D9D9D9", end_color="D9D9D9", fill_type="solid")
-                cell.font = Font(bold=True)
+        for cell in ws[1]:
+            cell.fill = PatternFill(start_color="D9D9D9", end_color="D9D9D9", fill_type="solid")
+            cell.font = Font(bold=True)
 
-            col_idx = {col: i + 1 for i, col in enumerate(df.columns)}
-            for col_name in text_cols:
-                if col_name in col_idx:
-                    for cell in ws[get_column_letter(col_idx[col_name])]:
-                        cell.number_format = '@'
+        col_idx = {col: i + 1 for i, col in enumerate(columns)}
+        for col_name in text_cols:
+            if col_name in col_idx:
+                for cell in ws[get_column_letter(col_idx[col_name])]:
+                    cell.number_format = '@'
 
-            for col_name in money_cols:
-                if col_name in col_idx:
-                    for cell in ws[get_column_letter(col_idx[col_name])][1:]:
-                        cell.number_format = '#,##0'
+        for col_name in money_cols:
+            if col_name in col_idx:
+                for cell in ws[get_column_letter(col_idx[col_name])][1:]:
+                    cell.number_format = '#,##0'
 
-            if "Tarif (%)" in col_idx:
-                for cell in ws[get_column_letter(col_idx["Tarif (%)"])][1:]:
-                    cell.number_format = '0.00'
+        if "Tarif (%)" in col_idx:
+            for cell in ws[get_column_letter(col_idx["Tarif (%)"])][1:]:
+                cell.number_format = '0.00'
 
-            if "No" in col_idx:
-                for cell in ws[get_column_letter(col_idx["No"])][1:]:
+        for col_name in center_cols:
+            if col_name in col_idx:
+                for cell in ws[get_column_letter(col_idx[col_name])][1:]:
                     cell.alignment = Alignment(horizontal='center')
 
-            for column in ws.columns:
-                max_length = max((len(str(cell.value)) for cell in column if cell.value), default=0)
-                ws.column_dimensions[column[0].column_letter].width = min(max_length + 2, 55)
+        for column in ws.columns:
+            max_length = max((len(str(cell.value)) for cell in column if cell.value), default=0)
+            ws.column_dimensions[column[0].column_letter].width = min(max_length + 2, 55)
+        book.save(output_path)
 
     @staticmethod
     def parse_values(val_str):
@@ -73,15 +118,16 @@ class ExpCore:
             v = v.replace('.', '').replace(',', '.')
         else:
             v = v.replace('.', '')
+        # Nominal yang tidak terbaca menggagalkan PDF (dicatat di log), bukan menjadi 0 di rekap.
         try: return float(v)
-        except: return 0.0
+        except ValueError: raise ValueError(f"Nilai angka tidak terbaca: {val_str!r}") from None
 
     @staticmethod
     def parse_tarif(val_str):
         v = str(val_str).replace('%', '').strip()
         v = v.replace(',', '.')
         try: return float(v)
-        except: return 0.0
+        except ValueError: raise ValueError(f"Tarif tidak terbaca: {val_str!r}") from None
 
     @staticmethod
     def _clean_filename_value(value):
@@ -406,34 +452,30 @@ class ExpCore:
         semua_baris_data = []
         dilewati = 0
         try:
-            for index, file_pdf in enumerate(pdf_files):
+            hasil = self._peta_pdf(partial(_baca_teks, self._extract_bupot_rows), pdf_files)
+            for index, (file_pdf, (rows, galat)) in enumerate(zip(pdf_files, hasil)):
                 self.progress(index, len(pdf_files))
                 nama_file = os.path.basename(file_pdf)
                 folder_sumber = os.path.relpath(os.path.dirname(file_pdf), folder)
                 self.log(f"Membaca {os.path.relpath(file_pdf, folder)}")
 
-                try:
-                    with pdfplumber.open(file_pdf) as pdf:
-                        teks_lengkap = "\n".join(p.extract_text() or "" for p in pdf.pages)
-                    rows = self._extract_bupot_rows(teks_lengkap)
-                    if not rows:
-                        dilewati += 1
-                        self.log(f"DILEWATI: {nama_file} — tidak ada baris BPPU yang dapat dibaca.")
-                    for baris in rows:
-                        baris["Folder Sumber"] = folder_sumber
-                        baris["File Name"] = nama_file
-                        semua_baris_data.append(baris)
-                except Exception as error:
+                if galat is not None:
                     dilewati += 1
-                    self.log(f"GAGAL: {nama_file} — {error}")
+                    self.log(f"GAGAL: {nama_file} — {galat}")
+                    continue
+                if not rows:
+                    dilewati += 1
+                    self.log(f"DILEWATI: {nama_file} — tidak ada baris BPPU yang dapat dibaca.")
+                for baris in rows:
+                    baris["Folder Sumber"] = folder_sumber
+                    baris["File Name"] = nama_file
+                    semua_baris_data.append(baris)
 
             if semua_baris_data:
-                df = pd.DataFrame(semua_baris_data)
-                df.insert(0, 'No', range(1, len(df) + 1))
                 output_path = os.path.join(folder, "!Hasil_Rekap_Bupot.xlsx")
 
                 self._write_excel(
-                    df, output_path, "Rekap",
+                    [{"No": nomor, **baris} for nomor, baris in enumerate(semua_baris_data, 1)], output_path, "Rekap",
                     text_cols=["Nomor Dokumen", "Masa Pajak", "NPWP/NIK", "Kode Objek Pajak",
                                "Nomor Dokumen Dasar", "NPWP/NIK Pemotong"],
                     money_cols=["DPP (Rp)", "Pajak Penghasilan (Rp)"],
@@ -575,41 +617,33 @@ class ExpCore:
         semua_baris_data = []
         dilewati = 0
         try:
-            for index, file_pdf in enumerate(pdf_files):
+            hasil = self._peta_pdf(partial(_baca_teks, self._extract_bupot2024_rows), pdf_files)
+            for index, (file_pdf, (baris_pdf, galat)) in enumerate(zip(pdf_files, hasil)):
                 self.progress(index, len(pdf_files))
                 nama_file = os.path.basename(file_pdf)
                 folder_sumber = os.path.relpath(os.path.dirname(file_pdf), folder)
                 relatif = os.path.relpath(file_pdf, folder)
                 self.log(f"Membaca {relatif}")
 
-                try:
-                    with pdfplumber.open(file_pdf) as pdf:
-                        teks_lengkap = "\n".join(
-                            p.extract_text() or "" for p in pdf.pages
-                        )
-
-                    baris_pdf = self._extract_bupot2024_rows(teks_lengkap)
-                    if not baris_pdf:
-                        dilewati += 1
-                        self.log(
-                            f"DILEWATI: {relatif} — tidak ada baris objek pajak BPBS yang berhasil dibaca."
-                        )
-                        continue
-
-                    for baris in baris_pdf:
-                        baris["Folder Sumber"] = folder_sumber
-                        baris["File Name"] = nama_file
-                        semua_baris_data.append(baris)
-                except Exception as error:
+                if galat is not None:
                     dilewati += 1
-                    self.log(f"GAGAL: {relatif} — {error}")
+                    self.log(f"GAGAL: {relatif} — {galat}")
+                    continue
+                if not baris_pdf:
+                    dilewati += 1
+                    self.log(f"DILEWATI: {relatif} — tidak ada baris objek pajak BPBS yang berhasil dibaca.")
+                    continue
+
+                for baris in baris_pdf:
+                    baris["Folder Sumber"] = folder_sumber
+                    baris["File Name"] = nama_file
+                    semua_baris_data.append(baris)
 
             if semua_baris_data:
-                df = pd.DataFrame(semua_baris_data)
-                df.insert(0, "No", range(1, len(df) + 1))
                 output_path = os.path.join(folder, "!Hasil_Rekap_Bupot_2024.xlsx")
                 self._write_excel(
-                    df, output_path, "Rekap 2024",
+                    [{"No": nomor, **baris} for nomor, baris in enumerate(semua_baris_data, 1)],
+                    output_path, "Rekap 2024",
                     text_cols=[
                         "Nomor Bukti Potong", "NPWP", "NIK", "Masa Pajak",
                         "Kode Objek Pajak", "Nomor Dokumen Referensi", "NPWP Pemotong",
@@ -633,6 +667,67 @@ class ExpCore:
     # ══════════════════════════════════════════
     #  EKSTRAKSI — PAJAK MASUKAN
     # ══════════════════════════════════════════
+    @classmethod
+    def _baca_pm(cls, path):
+        """Rincian barang satu faktur pajak; kolom Folder Sumber dan Nama File PDF diisi pemanggil."""
+        baris_data = []
+        with pdfplumber.open(path) as pdf:
+            teks_lengkap = "\n".join(page.extract_text() or "" for page in pdf.pages)
+
+            nama_pembeli_match = re.search(r'Pembeli Barang Kena Pajak.*?Nama\s*:\s*([^\n]+)', teks_lengkap, re.DOTALL | re.IGNORECASE)
+            nama_pembeli = nama_pembeli_match.group(1).strip() if nama_pembeli_match else "-"
+
+            pembeli_block = re.search(r'Pembeli Barang Kena Pajak.*?(?P<npwp>\d{15,16})', teks_lengkap.replace('.', '').replace('-', ''), re.DOTALL | re.IGNORECASE)
+            if pembeli_block:
+                npwp_pembeli = pembeli_block.group('npwp')
+            else:
+                npwp_matches = re.findall(r'NPWP\s*:\s*([\d\.\-]+)', teks_lengkap)
+                npwp_pembeli = npwp_matches[-1].replace('.', '').replace('-', '') if npwp_matches else "-"
+
+            no_seri_match = re.search(r'Kode dan Nomor Seri Faktur Pajak\s*:\s*([\d\-\.]+)', teks_lengkap, re.IGNORECASE)
+            no_seri = no_seri_match.group(1).replace('.', '').replace('-', '') if no_seri_match else "-"
+
+            no_urut = 1
+            for page in pdf.pages:
+                tabel_halaman = page.extract_tables()
+                for tabel in tabel_halaman:
+                    for row in tabel:
+                        if not row or len(row) < 3: continue
+
+                        kode_col, desc_col = str(row[1] or ""), str(row[2] or "")
+                        if "Nama Barang" in desc_col or not desc_col.strip() or "Harga Jual" in kode_col:
+                            continue
+
+                        kodes = re.findall(r'\d{6,}', kode_col)
+                        blocks = re.split(r'PPnBM.*?=.*?\n?', desc_col)
+
+                        for i, block in enumerate(blocks):
+                            if "Rp" not in block: continue
+
+                            match_harga = re.search(r'Rp\s*([\d\.]+,\d{2})\s*x\s*([\d\.,]+)\s*([A-Za-z]+)', block)
+                            if match_harga:
+                                harga = float(match_harga.group(1).replace('.', '').replace(',', '.'))
+                                qty = float(match_harga.group(2).replace('.', '').replace(',', '.'))
+                                satuan = match_harga.group(3)
+                                potongan_harga = 0
+
+                                nama_barang = block[:match_harga.start()].replace('\n', ' ').strip()
+                                kode_barang = kodes[i] if i < len(kodes) else (kodes[0] if kodes else "")
+
+                                dpp = (harga * qty) - potongan_harga
+                                ppn = dpp * 0.12  # Asumsi PPN 12%
+                                netto = dpp + ppn
+
+                                baris_data.append({
+                                    "Nama Pembeli": nama_pembeli, "NPWP Pembeli": npwp_pembeli,
+                                    "Kode dan Nomor Seri Faktur Pajak": no_seri, "No": no_urut,
+                                    "Kode Barang": kode_barang, "Nama Barang": nama_barang,
+                                    "Harga": harga, "Qty": qty, "Satuan": satuan, "Potongan Harga": potongan_harga,
+                                    "DPP": dpp, "PPN": ppn, "NETTO": netto,
+                                })
+                                no_urut += 1
+        return baris_data
+
     def process_pm(self, folder):
         if not folder or not os.path.isdir(folder):
             raise ValueError("Folder tidak ditemukan. Pilih folder yang tersedia.")
@@ -645,101 +740,34 @@ class ExpCore:
         semua_baris_data = []
         dilewati = 0
         try:
-            for index, file_pdf in enumerate(pdf_files):
+            hasil = self._peta_pdf(self._baca_pm, pdf_files)
+            for index, (file_pdf, (rows, galat)) in enumerate(zip(pdf_files, hasil)):
                 self.progress(index, len(pdf_files))
                 nama_file = os.path.basename(file_pdf)
                 folder_sumber = os.path.relpath(os.path.dirname(file_pdf), folder)
                 self.log(f"Membaca {os.path.relpath(file_pdf, folder)}")
 
-                try:
-                    rows_before = len(semua_baris_data)
-                    with pdfplumber.open(file_pdf) as pdf:
-                        teks_lengkap = "\n".join(page.extract_text() or "" for page in pdf.pages)
-
-                        nama_pembeli_match = re.search(r'Pembeli Barang Kena Pajak.*?Nama\s*:\s*([^\n]+)', teks_lengkap, re.DOTALL | re.IGNORECASE)
-                        nama_pembeli = nama_pembeli_match.group(1).strip() if nama_pembeli_match else "-"
-
-                        pembeli_block = re.search(r'Pembeli Barang Kena Pajak.*?(?P<npwp>\d{15,16})', teks_lengkap.replace('.', '').replace('-', ''), re.DOTALL | re.IGNORECASE)
-                        if pembeli_block:
-                            npwp_pembeli = pembeli_block.group('npwp')
-                        else:
-                            npwp_matches = re.findall(r'NPWP\s*:\s*([\d\.\-]+)', teks_lengkap)
-                            npwp_pembeli = npwp_matches[-1].replace('.', '').replace('-', '') if npwp_matches else "-"
-
-                        no_seri_match = re.search(r'Kode dan Nomor Seri Faktur Pajak\s*:\s*([\d\-\.]+)', teks_lengkap, re.IGNORECASE)
-                        no_seri = no_seri_match.group(1).replace('.', '').replace('-', '') if no_seri_match else "-"
-
-                        no_urut = 1
-                        for page in pdf.pages:
-                            tabel_halaman = page.extract_tables()
-                            for tabel in tabel_halaman:
-                                for row in tabel:
-                                    if not row or len(row) < 3: continue
-
-                                    kode_col, desc_col = str(row[1] or ""), str(row[2] or "")
-                                    if "Nama Barang" in desc_col or not desc_col.strip() or "Harga Jual" in kode_col:
-                                        continue
-
-                                    kodes = re.findall(r'\d{6,}', kode_col)
-                                    blocks = re.split(r'PPnBM.*?=.*?\n?', desc_col)
-
-                                    for i, block in enumerate(blocks):
-                                        if "Rp" not in block: continue
-
-                                        match_harga = re.search(r'Rp\s*([\d\.]+,\d{2})\s*x\s*([\d\.,]+)\s*([A-Za-z]+)', block)
-                                        if match_harga:
-                                            harga = float(match_harga.group(1).replace('.', '').replace(',', '.'))
-                                            qty = float(match_harga.group(2).replace('.', '').replace(',', '.'))
-                                            satuan = match_harga.group(3)
-                                            potongan_harga = 0
-
-                                            nama_barang = block[:match_harga.start()].replace('\n', ' ').strip()
-                                            kode_barang = kodes[i] if i < len(kodes) else (kodes[0] if kodes else "")
-
-                                            dpp = (harga * qty) - potongan_harga
-                                            ppn = dpp * 0.12  # Asumsi PPN 12%
-                                            netto = dpp + ppn
-
-                                            semua_baris_data.append({
-                                                "Nama Pembeli": nama_pembeli, "NPWP Pembeli": npwp_pembeli,
-                                                "Kode dan Nomor Seri Faktur Pajak": no_seri, "No": no_urut,
-                                                "Kode Barang": kode_barang, "Nama Barang": nama_barang,
-                                                "Harga": harga, "Qty": qty, "Satuan": satuan, "Potongan Harga": potongan_harga,
-                                                "DPP": dpp, "PPN": ppn, "NETTO": netto,
-                                                "Folder Sumber": folder_sumber, "Nama File PDF": nama_file
-                                            })
-                                            no_urut += 1
-                    if len(semua_baris_data) == rows_before:
-                        dilewati += 1
-                        self.log(f"DILEWATI: {nama_file} — tidak ada rincian faktur yang dapat dibaca.")
-                except Exception as inner_e:
+                if galat is not None:
                     dilewati += 1
-                    self.log(f"Gagal: {nama_file} — {str(inner_e)}")
+                    self.log(f"Gagal: {nama_file} — {galat}")
+                    continue
+                if not rows:
+                    dilewati += 1
+                    self.log(f"DILEWATI: {nama_file} — tidak ada rincian faktur yang dapat dibaca.")
+                for baris in rows:
+                    baris["Folder Sumber"] = folder_sumber
+                    baris["Nama File PDF"] = nama_file
+                    semua_baris_data.append(baris)
 
             if semua_baris_data:
-                kolom_urutan = ['Nama Pembeli', 'NPWP Pembeli', 'Kode dan Nomor Seri Faktur Pajak', 'No', 'Kode Barang', 'Nama Barang', 'Harga', 'Qty', 'Satuan', 'Potongan Harga', 'DPP', 'PPN', 'NETTO', 'Folder Sumber', 'Nama File PDF']
-                df = pd.DataFrame(semua_baris_data, columns=kolom_urutan)
                 output_path = os.path.join(folder, "Hasil_Pajak_Masukan.xlsx")
-
-                with pd.ExcelWriter(output_path, engine='openpyxl') as writer:
-                    df.to_excel(writer, index=False, sheet_name="Rekap_Faktur")
-                    ws = writer.sheets["Rekap_Faktur"]
-
-                    for cell in ws[1]:
-                        cell.fill = PatternFill(start_color="D9D9D9", end_color="D9D9D9", fill_type="solid")
-                        cell.font = Font(bold=True)
-
-                    for col_letter in ['B', 'C', 'E']:
-                        for cell in ws[col_letter]: cell.number_format = '@'
-
-                    col_idx = {col: i+1 for i, col in enumerate(df.columns)}
-                    for col_name in ["Harga", "Potongan Harga", "DPP", "PPN", "NETTO"]:
-                        if col_name in col_idx:
-                            for cell in ws[get_column_letter(col_idx[col_name])][1:]: cell.number_format = '#,##0'
-
-                    for column in ws.columns:
-                        max_length = max((len(str(cell.value)) for cell in column if cell.value), default=0)
-                        ws.column_dimensions[column[0].column_letter].width = min(max_length + 2, 55)
+                # Kolom mengikuti urutan kunci baris; "No" (nomor barang per faktur) tidak dirata-tengahkan.
+                self._write_excel(
+                    semua_baris_data, output_path, "Rekap_Faktur",
+                    text_cols=["NPWP Pembeli", "Kode dan Nomor Seri Faktur Pajak", "Kode Barang"],
+                    money_cols=["Harga", "Potongan Harga", "DPP", "PPN", "NETTO"],
+                    center_cols=(),
+                )
 
                 self.log(f"Selesai — {output_path}")
                 return output_path, f"Selesai — {len(semua_baris_data)} baris, {dilewati} PDF dilewati."
@@ -1099,16 +1127,14 @@ class ExpCore:
         self.log(f"Memproses {len(pdf_files)} file …")
         rekening, dilewati = [], 0
         try:
-            for index, file_pdf in enumerate(pdf_files):
+            hasil = self._peta_pdf(partial(_baca_halaman, self._extract_rekening_koran), pdf_files)
+            for index, (file_pdf, (data, galat)) in enumerate(zip(pdf_files, hasil)):
                 self.progress(index, len(pdf_files))
                 relatif = os.path.relpath(file_pdf, folder)
                 self.log(f"Membaca {relatif}")
-                try:
-                    with pdfplumber.open(file_pdf) as pdf:
-                        data = self._extract_rekening_koran(pdf.pages)
-                except Exception as error:
+                if galat is not None:
                     dilewati += 1
-                    self.log(f"GAGAL: {relatif} — {error}")
+                    self.log(f"GAGAL: {relatif} — {galat}")
                     continue
                 if data is None:
                     dilewati += 1
@@ -1578,16 +1604,14 @@ class ExpCore:
         self.log(f"Memproses {len(pdf_files)} file …")
         laporan, dilewati = [], 0
         try:
-            for index, file_pdf in enumerate(pdf_files):
+            hasil = self._peta_pdf(partial(_baca_halaman, self._extract_rekening_cimb), pdf_files)
+            for index, (file_pdf, (data, galat)) in enumerate(zip(pdf_files, hasil)):
                 self.progress(index, len(pdf_files))
                 relatif = os.path.relpath(file_pdf, folder)
                 self.log(f"Membaca {relatif}")
-                try:
-                    with pdfplumber.open(file_pdf) as pdf:
-                        data = self._extract_rekening_cimb(pdf.pages)
-                except Exception as error:
+                if galat is not None:
                     dilewati += 1
-                    self.log(f"GAGAL: {relatif} — {error}")
+                    self.log(f"GAGAL: {relatif} — {galat}")
                     continue
                 if data is None:
                     dilewati += 1

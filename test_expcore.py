@@ -4,6 +4,7 @@ import os
 import subprocess
 import sys
 import tempfile
+from contextlib import nullcontext
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, Mock, patch
@@ -34,6 +35,51 @@ def sheet_row(path, rows=1):
         return dict(zip((c.value for c in sheet[1]), (c.value for c in sheet[2])))
     finally:
         book.close()
+
+
+# Acuan Excel PDF contoh: lokal saja (contoh-pdf berisi data nasabah asli dan ada di .gitignore).
+ACUAN = ROOT / "contoh-pdf" / "acuan"
+# Folder contoh -> (metode ExpCore, nama Excel hasil). Pajak Masukan belum punya faktur asli di contoh-pdf;
+# tambahkan ("process_pm", "Hasil_Pajak_Masukan.xlsx") bila foldernya ada.
+SAMPLE_EXPORTS = {
+    "BUPOT 2026": ("process_bupot", "!Hasil_Rekap_Bupot.xlsx"),
+    "BUPOT 2024": ("process_bupot_2024", "!Hasil_Rekap_Bupot_2024.xlsx"),
+    "Rekening Giro": ("process_rekening_koran", "!Hasil_Rekap_Rekening_Koran.xlsx"),
+    "Rekening Tahapan": ("process_rekening_koran", "!Hasil_Rekap_Rekening_Koran.xlsx"),
+    "BANG CIMB": ("process_rekening_cimb", "!Hasil_Rekap_Rekening_CIMB.xlsx"),
+}
+
+
+def gaya_sel(cell):
+    """Isi dan tampilan satu sel. Nilai dibandingkan dengan ==, jadi 1 dan 1.0 dianggap sama."""
+    font, align, border, link = cell.font, cell.alignment, cell.border, cell.hyperlink
+    return (cell.value, cell.number_format, font.b, font.i, font.u, font.name, font.sz,
+            font.color.rgb if font.color else None, cell.fill.fill_type, cell.fill.fgColor.rgb,
+            align.horizontal, align.vertical, align.wrap_text,
+            border.left.style, border.right.style, border.top.style, border.bottom.style,
+            (link.location, link.target) if link else None)
+
+
+def bandingkan_excel(acuan, hasil):
+    """Maks. 10 perbedaan dua workbook, kosong bila identik: sheet, dimensi, freeze, filter, lebar kolom, setiap sel."""
+    a_book, b_book = load_workbook(acuan), load_workbook(hasil)  # File langsung ditutup setelah dibaca.
+    if a_book.sheetnames != b_book.sheetnames:
+        return [f"sheet {a_book.sheetnames} vs {b_book.sheetnames}"]
+    beda = []
+    for a, b in zip(a_book.worksheets, b_book.worksheets):
+        for label, x, y in (("dimensi", a.dimensions, b.dimensions), ("freeze", a.freeze_panes, b.freeze_panes),
+                            ("filter", a.auto_filter.ref, b.auto_filter.ref)):
+            if x != y:
+                beda.append(f"{a.title} {label}: {x!r} vs {y!r}")
+        for kolom in sorted(set(a.column_dimensions) | set(b.column_dimensions)):
+            x, y = a.column_dimensions[kolom].width, b.column_dimensions[kolom].width
+            if x != y:
+                beda.append(f"{a.title} lebar kolom {kolom}: {x} vs {y}")
+        for row_a, row_b in zip(a.iter_rows(), b.iter_rows()):
+            for x, y in zip(row_a, row_b):
+                if gaya_sel(x) != gaya_sel(y):
+                    beda.append(f"{a.title}!{x.coordinate}: {gaya_sel(x)} vs {gaya_sel(y)}")
+    return beda[:10]
 
 
 def test_engine_protocol():
@@ -112,7 +158,14 @@ def test_engine_protocol():
                      ("rename", str(folder), "--nama", "C.3")):
             code, events, stderr = run_engine(*args)
             assert (code, events) == (2, []) and "usage" in stderr, (args, code, events)
-    print("Engine: protokol JSON, lima ekspor, penamaan BPPU + BPBS (kedua sumber nama), Unicode, PDF rusak dan argumen OK")
+
+    # Proses pekerja pembaca PDF mewarisi stdout engine di Windows; keluarannya wajib ke stderr.
+    code = "from ExpCore import ExpCore\nlist(ExpCore(workers=2)._peta_pdf(print, ['pekerja-a', 'pekerja-b']))"
+    result = subprocess.run([sys.executable, "-c", code], cwd=ROOT, capture_output=True, timeout=120)
+    assert result.returncode == 0 and result.stdout == b"", (result.stdout, result.stderr)
+    assert b"pekerja-a" in result.stderr and b"pekerja-b" in result.stderr, result.stderr
+    print("Engine: protokol JSON, lima ekspor, penamaan BPPU + BPBS (kedua sumber nama), Unicode, PDF rusak, "
+          "argumen, dan stdout proses pekerja OK")
 
 
 def test_batch_exports():
@@ -132,13 +185,14 @@ def test_batch_exports():
                                      "Kode dan Nomor Seri Faktur Pajak : 0100000000000001",
                 extract_tables=lambda: [[["1", "123456", "Jasa Uji Rp 1.000,00 x 2 Unit"]]],
             )
-            worker = SimpleNamespace(progress=Mock(), log=Mock(), _write_excel=ExpCore._write_excel)
-            if parser:
-                setattr(worker, parser, lambda text: [{"NPWP": "0012345678901234", "DPP (Rp)": 2000.0}])
+            # Satu proses (workers=1): patch tidak ikut ke proses pekerja.
+            worker = ExpCore(log=Mock(), progress=Mock(), workers=1)
+            parsed = [{"NPWP": "0012345678901234", "DPP (Rp)": 2000.0}]
             good_pdf = MagicMock()
             good_pdf.__enter__.return_value = SimpleNamespace(pages=[page])
-            with patch("ExpCore.pdfplumber.open", side_effect=[ValueError("corrupt PDF"), good_pdf]):
-                output, summary = getattr(ExpCore, method)(worker, folder)
+            parser_patch = patch.object(ExpCore, parser, staticmethod(lambda text: parsed)) if parser else nullcontext()
+            with patch("ExpCore.pdfplumber.open", side_effect=[ValueError("corrupt PDF"), good_pdf]), parser_patch:
+                output, summary = getattr(worker, method)(folder)
             assert "1 baris, 1 PDF dilewati" in summary, summary
             book = load_workbook(output)
             sheet = book.active
@@ -692,8 +746,11 @@ def test_rekening_cimb():
     print("Rekening koran CIMB: sel multi-baris, kolom dari garis tabel, lintas halaman, cek total & saldo, Excel: ok")
 
 
-def test_pdf_samples():
-    """Regresi opsional pada PDF contoh lokal di contoh-pdf/ (PDF asli tidak diubah)."""
+def test_pdf_samples(perbarui_acuan=False):
+    """Regresi opsional pada PDF contoh lokal di contoh-pdf/ (PDF asli tidak diubah).
+
+    Excel setiap pekerjaan dibandingkan per sel dengan acuan di contoh-pdf/acuan; perbarui_acuan menimpanya.
+    """
     import shutil
 
     root = Path(__file__).parent / "contoh-pdf"
@@ -747,6 +804,24 @@ def test_pdf_samples():
         for akun in after["rekening"]:
             assert akun["norek"] not in akhir or akhir[akun["norek"]] == akun["SALDO AWAL"], (after["periode"], akun["norek"])
     print(f"PDF contoh CIMB Niaga: {len(reports)} laporan, {sum(counts)} transaksi, semua SESUAI", flush=True)
+
+    for nama, (metode, keluaran) in SAMPLE_EXPORTS.items():
+        sumber, acuan = root / nama, ACUAN / nama / keluaran
+        with tempfile.TemporaryDirectory() as folder:
+            for pdf in sorted(sumber.glob("*.pdf")):
+                shutil.copy(pdf, folder)
+            hasil, _ = getattr(ExpCore(), metode)(folder)
+            assert hasil, (nama, "tidak menghasilkan Excel")
+            if perbarui_acuan:
+                acuan.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy(hasil, acuan)
+                print(f"Acuan Excel {nama}: diperbarui", flush=True)
+                continue
+            assert acuan.is_file(), (f"Acuan {acuan} belum ada. Buat dengan: "
+                                     "./.venv/Scripts/python.exe test_expcore.py --pdf-samples --perbarui-acuan")
+            beda = bandingkan_excel(acuan, hasil)
+            assert not beda, f"{nama}: Excel berbeda dari acuan\n" + "\n".join(beda)
+        print(f"Acuan Excel {nama}: identik per sel", flush=True)
 
 
 def main():
@@ -833,6 +908,13 @@ C.5 NAMA PENANDATANGAN : I DEWA MADE SUSILA"""
         "Nama Pemotong": "ADIRA DINAMIKA MULTI FINANCE TBK.",
         "Tanggal Bukti Potong": "31 Januari 2025",
     }
+    # Baris objek pajak tanpa nominal: PDF gagal dengan pesan, bukan baris DPP/PPh 0.
+    try:
+        ExpCore._extract_bupot_rows(bupot.replace(" 3.700.000 2 74.000", ""))
+    except ValueError as error:
+        assert "tidak terbaca" in str(error), error
+    else:
+        raise AssertionError("nominal yang tidak terbaca harus menggagalkan PDF, bukan menjadi 0")
 
     print("Rekap Bukti Potong: ok")
 
@@ -928,4 +1010,4 @@ Sesuai dengan ketentuan yang berlaku di, Direktorat Jenderal pajak mengatur bahw
 if __name__ == "__main__":
     main()
     if "--pdf-samples" in sys.argv:
-        test_pdf_samples()
+        test_pdf_samples(perbarui_acuan="--perbarui-acuan" in sys.argv)

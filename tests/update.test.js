@@ -19,6 +19,9 @@ const PAYLOAD = crypto.randomBytes(3 * 1024 * 1024);
 const SHA512 = crypto.createHash('sha512').update(PAYLOAD).digest('base64');
 
 const CORRUPT = Buffer.from(PAYLOAD).fill(0, 0, 1024);
+// Versi terpasang mengikuti package.json; server lokal menawarkan versi patch berikutnya.
+const CURRENT = require('../package.json').version;
+const NEWER = CURRENT.replace(/\d+$/, (patch) => String(Number(patch) + 1));
 const server = { mode: 'available', corrupt: false, requests: [] };
 let httpServer;
 let app;
@@ -37,9 +40,9 @@ function handle(request, response) {
   if (server.mode === 'down') {
     request.socket.destroy();
   } else if (url === '/latest.yml' && server.mode !== 'missing') {
-    const version = server.mode === 'current' ? '3.0.0' : '3.0.1';
+    const version = server.mode === 'current' ? CURRENT : NEWER;
     response.end(latestYml(version));
-  } else if (url === '/ExpCore-Setup-3.0.1.exe') {
+  } else if (url === `/ExpCore-Setup-${NEWER}.exe`) {
     // Dikirim bertahap supaya status "Mengunduh… n%" dapat diamati.
     const body = server.corrupt ? CORRUPT : PAYLOAD;
     response.writeHead(200, { 'Content-Length': PAYLOAD.length, 'Content-Type': 'application/octet-stream' });
@@ -117,8 +120,8 @@ describe('Pembaruan aplikasi terpasang', { skip: !SOURCE && 'EXPCORE_APP belum d
   });
 
   it('pemeriksaan otomatis saat mulai menampilkan banner tanpa interaksi', async () => {
-    await waitBanner('ExpCore 3.0.1 tersedia.');
-    assert.equal(await bannerText(), 'ExpCore 3.0.1 tersedia.\nVersi Anda: 3.0.0');
+    await waitBanner(`ExpCore ${NEWER} tersedia.`);
+    assert.equal(await bannerText(), `ExpCore ${NEWER} tersedia.\nVersi Anda: ${CURRENT}`);
     assert.equal(await page.textContent('#update-action'), 'Unduh update');
     assert.equal(await page.isEnabled('#check-update'), true);
     assert.ok(server.requests.some((url) => url.startsWith('/latest.yml')));
@@ -128,14 +131,14 @@ describe('Pembaruan aplikasi terpasang', { skip: !SOURCE && 'EXPCORE_APP belum d
   it('pemeriksaan manual: versi terbaru, belum ada latest.yml, dan offline', async () => {
     server.mode = 'current';
     let dialog = await manualCheck();
-    assert.equal(dialog.detail, 'Anda memakai ExpCore 3.0.0.\nTidak ada versi stabil yang lebih baru.');
+    assert.equal(dialog.detail, `Anda memakai ExpCore ${CURRENT}.\nTidak ada versi stabil yang lebih baru.`);
     assert.equal(await page.isHidden('#update-banner'), true);
 
     // Rilis tanpa latest.yml (mis. v2.x lama di GitHub) bukan gangguan: cukup belum ada pembaruan.
     server.mode = 'missing';
     dialog = await manualCheck();
     assert.deepEqual([dialog.type, dialog.title, dialog.detail],
-      ['info', 'Pembaruan ExpCore', 'Anda memakai ExpCore 3.0.0.\nBelum ada pembaruan yang siap dipasang.']);
+      ['info', 'Pembaruan ExpCore', `Anda memakai ExpCore ${CURRENT}.\nBelum ada pembaruan yang siap dipasang.`]);
     assert.equal(await page.isHidden('#update-banner'), true);
 
     server.mode = 'down';
@@ -150,16 +153,16 @@ describe('Pembaruan aplikasi terpasang', { skip: !SOURCE && 'EXPCORE_APP belum d
     server.corrupt = true; // Isi berubah di jalan: checksum sha512 dari latest.yml wajib menolaknya.
     await stubMain();
     await page.click('#check-update');
-    await waitBanner('ExpCore 3.0.1 tersedia.');
+    await waitBanner(`ExpCore ${NEWER} tersedia.`);
     await page.click('#update-action');
-    await waitBanner('Unduhan ExpCore 3.0.1 gagal.');
+    await waitBanner(`Unduhan ExpCore ${NEWER} gagal.`);
     assert.equal(await page.textContent('#update-action'), 'Coba lagi');
 
     server.corrupt = false;
     await page.click('#update-action');
-    await waitBanner('Mengunduh ExpCore 3.0.1…');
+    await waitBanner(`Mengunduh ExpCore ${NEWER}…`);
     assert.equal(await page.isDisabled('#update-action'), true);
-    await waitBanner('ExpCore 3.0.1 siap dipasang.');
+    await waitBanner(`ExpCore ${NEWER} siap dipasang.`);
     assert.equal(await page.textContent('#update-action'), 'Pasang & mulai ulang');
     const downloaded = fs.readdirSync(path.join(CACHE, 'pending')).filter((name) => name.endsWith('.exe'));
     assert.equal(downloaded.length, 1);
@@ -171,7 +174,7 @@ describe('Pembaruan aplikasi terpasang', { skip: !SOURCE && 'EXPCORE_APP belum d
     assert.equal(await page.isHidden('#update-banner'), true);
     const before = server.requests.length;
     await page.click('#check-update');
-    await waitBanner('ExpCore 3.0.1 siap dipasang.');
+    await waitBanner(`ExpCore ${NEWER} siap dipasang.`);
     assert.equal(server.requests.length, before);
   });
 

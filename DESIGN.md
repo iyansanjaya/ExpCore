@@ -196,7 +196,7 @@ dan `setSize()`) dan "menu Alat…" (memakai `focused()`) di `tests/app.test.js`
 | Preload | `app/preload.js` | Satu-satunya jembatan: API `window.expcore` |
 | Main | `app/main.js` | Jendela, dialog native, validasi IPC, status pekerjaan, update |
 | Runner | `app/engine.js` | Menjalankan engine dan membaca protokol JSON per baris |
-| Engine | `expcore_engine.py` → `ExpCore.py` | Parser PDF dan ekspor Excel/CSV, satu proses per pekerjaan |
+| Engine | `expcore_engine.py` → `ExpCore.py` | Parser PDF dan ekspor Excel/CSV, satu proses per pekerjaan; PDF dibaca paralel di proses pekerja (maks. 4), stdout pekerja dialihkan ke stderr |
 
 *Kode:* `createWindow()` (sandbox, `contextIsolation`), `registerIpc()`, `handle()`, dan
 `startJob()` di `app/main.js`; `runEngine()` di `app/engine.js`; API `window.expcore` di
@@ -228,9 +228,12 @@ Combine Statement Portfolio CIMB sintetis menguji uraian beberapa baris dalam sa
 tabel yang berlanjut ke halaman berikutnya, rekening di luar Tabungan/Giro dan Tabungan
 Berjangka yang diabaikan, judul tabel tak dikenal tanpa nominal yang ditebak, serta setiap
 jenis selisih: baris Total, saldo berjalan, daftar aset, total kategori, dan kelengkapan halaman.
-Opsi `--pdf-samples` memeriksa PDF contoh lokal di `contoh-pdf/` tanpa mengubah dokumen.
+Opsi `--pdf-samples` memeriksa PDF contoh lokal di `contoh-pdf/` tanpa mengubah dokumen, lalu
+membandingkan Excel setiap folder contoh per sel dengan acuan lokal di `contoh-pdf/acuan/`
+(dibuat ulang dengan `--perbarui-acuan`), sehingga perubahan engine apa pun yang menggeser satu sel
+pun langsung terlihat.
 *Kode:* `test_engine_protocol()`, `test_rename_pemotong()`, `test_rename_bpbs()`, `test_rekening_koran()`,
-`test_rekening_cimb()`, dan `test_pdf_samples()` di `test_expcore.py`; `write_all()`,
+`test_rekening_cimb()`, `test_pdf_samples()`, dan `bandingkan_excel()` di `test_expcore.py`; `write_all()`,
 `write_rekening()`, dan `write_cimb()` di `tests/fixtures.py`.
 
 `npm test` menjalankan `tests/engine.test.js` (kontrak runner) dan `tests/app.test.js`

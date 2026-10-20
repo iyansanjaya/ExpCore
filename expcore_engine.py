@@ -5,11 +5,13 @@ stdout hanya berisi protokol, satu objek JSON per baris:
   {"event": "progress", "done": int, "total": int}
   {"event": "done", "path": str | null, "summary": str}   -> exit 0
   {"event": "error", "message": str}                       -> exit 1
-Argumen tidak valid -> exit 2 tanpa protokol. Keluaran lain (traceback, print pustaka) ke stderr.
+Argumen tidak valid -> exit 2 tanpa protokol. Keluaran lain (traceback, print pustaka) ke stderr,
+termasuk keluaran proses pekerja yang membaca PDF secara paralel.
 """
 
 import argparse
 import json
+import multiprocessing
 import sys
 import traceback
 
@@ -61,4 +63,5 @@ def main(argv=None):
 
 
 if __name__ == "__main__":
+    multiprocessing.freeze_support()  # Exe hasil build: proses pembaca PDF dijalankan lewat exe ini.
     sys.exit(main())

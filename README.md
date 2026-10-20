@@ -52,13 +52,14 @@ Semua proses berjalan secara lokal. ExpCore TIDAK mengirim PDF atau hasil ekstra
 
 - **Aplikasi desktop:** [Electron](https://www.electronjs.org/)
 - **Antarmuka:** [Tailwind CSS](https://tailwindcss.com/) v4, [Motion](https://motion.dev/) (Framer Motion untuk JavaScript), ikon [Reicon](https://reicon.dev/), dan font Inter yang dibundel lokal
-- **Engine PDF:** Python — [pdfplumber](https://github.com/jsvine/pdfplumber), [pandas](https://pandas.pydata.org/), dan [openpyxl](https://openpyxl.readthedocs.io/)
+- **Engine PDF:** Python — [pdfplumber](https://github.com/jsvine/pdfplumber) dan [openpyxl](https://openpyxl.readthedocs.io/)
 - **Executable engine:** [Nuitka](https://nuitka.net/)
 - **Installer & update:** [electron-builder](https://www.electron.build/) (NSIS) dan electron-updater melalui GitHub Releases
 
 Electron menampilkan antarmuka. Setiap pekerjaan menjalankan satu proses engine Python
-(`expcore_engine.py`) yang mengirim log, progres, dan hasil dalam JSON per baris.
-Logika ekstraksi di `ExpCore.py` tidak bergantung pada antarmuka. Kode antarmuka di
+(`expcore_engine.py`) yang mengirim log, progres, dan hasil dalam JSON per baris. Bila folder
+berisi lebih dari satu PDF, engine membaca PDF secara paralel di proses pekerja (paling banyak
+empat); log, progres, dan Excel tetap disusun dalam urutan file. Logika ekstraksi di `ExpCore.py` tidak bergantung pada antarmuka. Kode antarmuka di
 `app/renderer/src/` dibangun ke `app/renderer/dist/` dengan `bun run build:renderer`
 (Tailwind CLI + esbuild); `bun start`, `bun run test`, dan `build_release.py` menjalankannya
 otomatis, jadi aplikasi tetap bekerja sepenuhnya offline.
@@ -75,7 +76,7 @@ cd ExpCore
 
 python -m venv .venv
 ./.venv/Scripts/python.exe -m pip install --upgrade pip
-./.venv/Scripts/python.exe -m pip install pdfplumber pandas openpyxl
+./.venv/Scripts/python.exe -m pip install pdfplumber openpyxl
 bun ci
 bun start
 ```
@@ -100,7 +101,7 @@ jadi venv harus berada di folder proyek dengan nama `.venv`.
 Verifikasi environment sudah benar. Perintah berikut harus mencetak <code>lengkap</code>:
 
 ```bash
-./.venv/Scripts/python.exe -c "import pdfplumber, pandas, openpyxl; print('lengkap')"
+./.venv/Scripts/python.exe -c "import pdfplumber, openpyxl; print('lengkap')"
 ```
 
 ---
@@ -323,7 +324,18 @@ Giro 28/29/20 transaksi dan Tahapan 81/105/101 transaksi, semuanya **SESUAI** de
 ringkasan PDF, dan saldo akhir setiap bulan sama dengan saldo awal bulan berikutnya. Untuk CIMB
 Niaga Jul–Des 2024: 29/46/36/32/41/24 transaksi (208), semua rekening dan total kategori **SESUAI**,
 serta saldo akhir setiap rekening sama dengan saldo awalnya di bulan berikutnya.
-*Kode:* `test_pdf_samples()` di `test_expcore.py`.
+
+Excel hasil setiap folder contoh juga dibandingkan per sel (nilai, format angka, gaya, tautan,
+lebar kolom, freeze, filter) dengan acuan lokal di `contoh-pdf/acuan/`. Acuan tidak di-commit
+karena berisi data asli. Buat atau perbarui acuan hanya dari kode yang sudah terbukti benar:
+
+```bash
+./.venv/Scripts/python.exe test_expcore.py --pdf-samples --perbarui-acuan
+```
+
+Pajak Masukan belum punya faktur asli di `contoh-pdf/`, jadi belum ada acuannya; tambahkan
+foldernya ke `SAMPLE_EXPORTS` bila contoh faktur tersedia.
+*Kode:* `test_pdf_samples()`, `bandingkan_excel()`, dan `SAMPLE_EXPORTS` di `test_expcore.py`.
 
 Aplikasi Electron end-to-end (renderer dibangun otomatis lebih dulu; memakai engine dari `.venv`; dialog native di-stub, PDF yang
 diproses adalah fixture sintetis di folder sementara):
@@ -385,7 +397,7 @@ dist/win-unpacked/
 └── resources/
     ├── app.asar                # app/ (tanpa renderer/src), package.json, electron-updater
     └── engine/
-        └── expcore_engine.exe  # Engine Nuitka beserta Python, pdfplumber, pandas, openpyxl
+        └── expcore_engine.exe  # Engine Nuitka beserta Python, pdfplumber, openpyxl
 ```
 
 Aplikasi memilih engine sesuai cara dijalankan:
@@ -429,10 +441,12 @@ bun ci
 Skrip ini berhenti pada kesalahan pertama, dengan urutan:
 
 1. Memvalidasi `version` di `package.json`.
-2. Memastikan pdfplumber, pandas, openpyxl, dan Nuitka dapat di-import oleh interpreter
+2. Memastikan pdfplumber, openpyxl, dan Nuitka dapat di-import oleh interpreter
    yang menjalankan skrip.
 3. Mengompilasi `expcore_engine.py` dengan Nuitka ke `expcore_engine.dist/` (folder lama
-   dihapus dulu). **Proses ini lama** — pandas dan numpy ikut dikompilasi.
+   dihapus dulu). **Proses ini lama.** pandas dan numpy sengaja tidak dibawa
+   (`--nofollow-import-to`), walau terpasang di venv: openpyxl dan pypdfium2 hanya mengimpornya
+   secara opsional.
 4. Menjalankan engine hasil build pada PDF sintetis untuk keenam alat, termasuk pratinjau
    dan penerapan nama. Modul yang tidak ter-bundle membuat build berhenti di sini.
 5. Membangun ulang renderer (`bun run build:renderer`) agar paket tidak memuat CSS/JS lama.

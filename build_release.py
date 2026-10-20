@@ -64,12 +64,14 @@ def check_engine(engine):
 
 def build_engine(version):
     # Import yang gagal harus menghentikan build, bukan menghasilkan engine yang rusak.
-    subprocess.run([sys.executable, "-c", "import pdfplumber, pandas, openpyxl, nuitka"], check=True)
+    subprocess.run([sys.executable, "-c", "import pdfplumber, openpyxl, nuitka"], check=True)
     shutil.rmtree(ENGINE_DIST, ignore_errors=True)
     subprocess.run([
         sys.executable, "-m", "nuitka", "--mode=standalone", "--assume-yes-for-downloads",
         # Konsol tetap tersembunyi: Electron menjalankan engine dengan windowsHide.
         "--windows-console-mode=force", "--windows-icon-from-ico=icon.ico",
+        # openpyxl dan pypdfium2 mengimpor numpy secara opsional (try/except, lazy); engine tidak memakainya.
+        "--nofollow-import-to=numpy", "--nofollow-import-to=pandas",
         "--company-name=Iyan Sanjaya", "--product-name=ExpCore", "--file-description=ExpCore PDF engine",
         f"--product-version={version}", f"--file-version={version}",
         "--copyright=Copyright (c) 2026 Iyan Sanjaya", "expcore_engine.py",

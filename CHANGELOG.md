@@ -7,6 +7,22 @@ penomoran versi mengikuti [Semantic Versioning](https://semver.org/lang/id/) den
 `version` di `package.json` sebagai satu-satunya sumber. Versi 1.x memakai penomoran lama
 (`1.1`, `1.2`, …).
 
+## [Unreleased]
+
+### Diubah
+
+- **Pemrosesan lebih cepat**: bila folder berisi lebih dari satu PDF, PDF dibaca paralel di
+  beberapa proses (paling banyak empat). Log, progres, dan isi Excel tetap sama dan berurutan.
+- **Engine lebih ramping**: pandas dan numpy tidak lagi dipakai, sehingga engine lebih kecil dan
+  setiap pemrosesan dimulai lebih cepat. Excel hasil kelima alat ekstraksi identik per sel dengan
+  versi sebelumnya.
+
+### Diperbaiki
+
+- Pada Bukti Potong 2026, baris objek pajak yang nominalnya tidak terbaca sebelumnya masuk rekap
+  dengan DPP, tarif, dan PPh 0 tanpa peringatan. Kini PDF tersebut dicatat **GAGAL** di log beserta
+  nilai yang tidak terbaca, dan tidak masuk rekap.
+
 ## [3.1.0] - 2026-10-12
 
 Alat baru Rekening Koran CIMB Niaga, Penamaan Bupot untuk Bupot 2024 (BPBS), dan penandaan
