@@ -7,15 +7,18 @@ penomoran versi mengikuti [Semantic Versioning](https://semver.org/lang/id/) den
 `version` di `package.json` sebagai satu-satunya sumber. Versi 1.x memakai penomoran lama
 (`1.1`, `1.2`, …).
 
-## [Unreleased]
+## [3.2.0] - 2026-10-20
+
+Pemrosesan lebih cepat dan installer lebih kecil, tanpa perubahan isi rekap Excel. Pengguna 3.0.0
+dan 3.1.0 menerima versi ini lewat pembaruan otomatis.
 
 ### Diubah
 
 - **Pemrosesan lebih cepat**: bila folder berisi lebih dari satu PDF, PDF dibaca paralel di
   beberapa proses (paling banyak empat). Log, progres, dan isi Excel tetap sama dan berurutan.
-- **Engine lebih ramping**: pandas dan numpy tidak lagi dipakai, sehingga engine lebih kecil dan
-  setiap pemrosesan dimulai lebih cepat. Excel hasil kelima alat ekstraksi identik per sel dengan
-  versi sebelumnya.
+- **Engine lebih ramping**: pandas dan numpy tidak lagi dipakai, sehingga engine lebih kecil,
+  installer sekitar 20 MB lebih kecil, dan setiap pemrosesan dimulai lebih cepat. Excel hasil
+  kelima alat ekstraksi identik per sel dengan versi sebelumnya.
 
 ### Diperbaiki
 
@@ -213,6 +216,7 @@ pilihan sumber nama pada Penamaan Bupot, dan pembaruan otomatis dari GitHub Rele
 
 - Rilis awal: ekstraksi PDF Bukti Potong dan Pajak Masukan dari Coretax ke Excel.
 
+[3.2.0]: https://github.com/iyansanjaya/ExpCore/compare/v3.1.0...v3.2.0
 [3.1.0]: https://github.com/iyansanjaya/ExpCore/compare/v3.0.0...v3.1.0
 [3.0.0]: https://github.com/iyansanjaya/ExpCore/compare/v2.0.1...v3.0.0
 [2.0.1]: https://github.com/iyansanjaya/ExpCore/compare/v2.0.0...v2.0.1
