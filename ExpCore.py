@@ -67,6 +67,12 @@ class ExpCore:
         with ProcessPoolExecutor(workers, initializer=partial(os.dup2, 2, 1)) as pool:
             yield from pool.map(partial(_baca_aman, pembaca), pdf_files)
 
+    def _peringatkan_kosong(self, nama, baris, kolom):
+        """Catat kolom identitas/tanggal yang terbaca "-" agar tidak lolos diam-diam ke rekap."""
+        kosong = [k for k in kolom if baris.get(k) == "-"]
+        if kosong:
+            self.log(f"PERINGATAN: {nama} — tidak terbaca: {', '.join(kosong)}.")
+
     @staticmethod
     def _write_excel(rows, output_path, sheet_name, text_cols=(), money_cols=(), center_cols=("No",)):
         """Tulis baris (dict, kolom = kunci baris pertama) ke Excel dengan header, format angka, dan lebar kolom.
@@ -397,7 +403,8 @@ class ExpCore:
         nomor_dokumen = match_nodok.group(1).strip() if match_nodok else "-"
         match_npwp_pemotong = re.search(r'C\.1\s*NPWP\s*/\s*NIK\s*:\s*([\d]+)', teks_rata)
         npwp_pemotong = match_npwp_pemotong.group(1) if match_npwp_pemotong else "-"
-        match_tanggal = re.search(r'C\.4\s*TANGGAL\s*:\s*([A-Za-z0-9\s]+?)\s*C\.5', teks_rata)
+        # Pola tanggal seperti Tanggal Dokumen: tidak bergantung pada huruf besar atau label C.5 sesudahnya.
+        match_tanggal = re.search(r'C\.4\s*TANGGAL\s*:\s*(\d{1,2}\s+\S+\s+\d{4})', teks_rata, re.IGNORECASE)
         tanggal_bupot = match_tanggal.group(1).strip() if match_tanggal else "-"
 
         match_blok = re.search(r'B\.7\s*(.*?)\s*B\.8\s*Dokumen', teks_rata, re.IGNORECASE)
@@ -466,6 +473,9 @@ class ExpCore:
                 if not rows:
                     dilewati += 1
                     self.log(f"DILEWATI: {nama_file} — tidak ada baris BPPU yang dapat dibaca.")
+                else:
+                    self._peringatkan_kosong(nama_file, rows[0], (
+                        "NPWP/NIK", "Nama", "NPWP/NIK Pemotong", "Nama Pemotong", "Tanggal Bukti Potong"))
                 for baris in rows:
                     baris["Folder Sumber"] = folder_sumber
                     baris["File Name"] = nama_file
@@ -531,18 +541,21 @@ class ExpCore:
             match = re.search(pattern, teks_rata if sumber is None else sumber, flags)
             return match.group(1).strip() if match else ""
 
-        npwp = cls._despace_digits(ambil(r"A\.1\s*NPWP\s*:\s*([\d\s]*?)\s*A\.2"))
+        # Dua tata letak BPBS: lama (NPWP per kotak, A.3 Nama, C.3 Tanggal) dan NITKU
+        # (NPWP "15 digit / 16 digit", baris NITKU menggeser A.4 Nama, C.3 Nama WP, C.4 Tanggal).
+        # Karena itu jangkar ke label, bukan nomor bagian.
+        npwp = cls._despace_digits(ambil(r"A\.1\s*NPWP\s*:\s*([\d\s]*?)\s*(?:/|A\.2)"))
         nik = cls._despace_digits(ambil(r"A\.2\s*NIK\s*:\s*([\d\s]*?)\s*A\.3"))
-        nama = ambil(r"A\.3\s*Nama\s*:\s*(.*?)\s*B\.\s*PAJAK")
+        nama = ambil(r"A\.\d\s*Nama\s*:\s*(.*?)\s*B\.\s*PAJAK")
         objek_pajak = ambil(r"Keterangan Kode Objek Pajak\s*:\s*(.*?)\s*B\.7")
         nomor_dokumen = ambil(r"B\.7.*?Nomor Dokumen\s+(\S+?)\s+Nama Dokumen")
         nama_dokumen = ambil(r"Nama Dokumen\s+(.*?)\s+Tanggal\s")
         tanggal_dokumen = cls._form_date(ambil(r"Nama Dokumen.*?Tanggal\s+(.*?yyyy)"))
-        npwp_pemotong = cls._despace_digits(ambil(r"C\.1\s*NPWP\s*:\s*([\d\s]*?)\s*C\.2"))
-        nama_pemotong = ambil(r"C\.2\s*Nama Wajib Pajak\s*:\s*(.*?)\s*C\.3")
-        tanggal_bukti = cls._form_date(ambil(r"C\.3\s*Tanggal\s*:\s*(.*?yyyy)"))
+        npwp_pemotong = cls._despace_digits(ambil(r"C\.1\s*NPWP\s*:\s*([\d\s]*?)\s*(?:/|C\.2)"))
+        nama_pemotong = ambil(r"C\.\d\s*Nama Wajib Pajak\s*:\s*(.*?)\s*C\.\d\s*Tanggal")
+        tanggal_bukti = cls._form_date(ambil(r"C\.\d\s*Tanggal\s*:\s*(.*?yyyy)"))
         # Label C.5 terpotong baris, kata "elektronik" jatuh ke depan C.5.
-        penandatangan = ambil(r"C\.4\s*Nama Penandatangan\s*:\s*(.*?)\s*(?:elektronik\s+)?C\.5")
+        penandatangan = ambil(r"C\.\d\s*Nama Penandatangan\s*:\s*(.*?)\s*(?:elektronik\s+)?C\.5")
 
         # Header H semuanya inline pada teks pdfplumber: nomor, pembetulan,
         # dan tanda centang sifat. Centang muncul sebagai "X" antara nomor
@@ -633,6 +646,9 @@ class ExpCore:
                     dilewati += 1
                     self.log(f"DILEWATI: {relatif} — tidak ada baris objek pajak BPBS yang berhasil dibaca.")
                     continue
+                # NIK tidak dicek: wajar kosong bila wajib pajak memakai NPWP.
+                self._peringatkan_kosong(relatif, baris_pdf[0], (
+                    "NPWP", "Nama", "NPWP Pemotong", "Nama Pemotong", "Tanggal Bukti Potong"))
 
                 for baris in baris_pdf:
                     baris["Folder Sumber"] = folder_sumber

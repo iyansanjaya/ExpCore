@@ -7,6 +7,18 @@ penomoran versi mengikuti [Semantic Versioning](https://semver.org/lang/id/) den
 `version` di `package.json` sebagai satu-satunya sumber. Versi 1.x memakai penomoran lama
 (`1.1`, `1.2`, …).
 
+## [Belum dirilis]
+
+### Diperbaiki
+
+- Pada Bukti Potong 2024, formulir BPBS tata letak baru (dengan baris NITKU) sebelumnya masuk rekap
+  dengan **Tanggal Bukti Potong**, NPWP, Nama, NPWP Pemotong, Nama Pemotong, dan Nama Penandatangan
+  berisi "-". Kini kolom-kolom itu terbaca, dan Penamaan Bupot juga mengenali nama pemotong dan
+  wajib pajak pada formulir tersebut. NPWP ditulis 15 digit seperti formulir lama.
+- Bila tanggal atau identitas pada Bukti Potong 2024/2026 tetap tidak terbaca, log kini mencatat
+  **PERINGATAN** beserta nama kolomnya, alih-alih diam-diam berisi "-".
+- Tanggal Bukti Potong 2026 (C.4) tidak lagi bergantung pada huruf besar label atau label C.5 sesudahnya.
+
 ## [3.2.0] - 2026-10-20
 
 Pemrosesan lebih cepat dan installer lebih kecil, tanpa perubahan isi rekap Excel. Pengguna 3.0.0

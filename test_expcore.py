@@ -759,28 +759,31 @@ def test_pdf_samples(perbarui_acuan=False):
         with pdfplumber.open(path) as pdf:
             return "\n".join(page.extract_text() or "" for page in pdf.pages)
 
-    # Satu PDF per folder; nama berkasnya bisa berubah (mis. sudah diberi nama oleh ExpCore).
-    bpbs, = sorted((root / "BUPOT 2024").glob("*.pdf"))
-    bppu, = sorted((root / "BUPOT 2026").glob("*.pdf"))
-    assert len(ExpCore._extract_bupot2024_rows(text(bpbs))) == 1
-    assert len(ExpCore._extract_bupot_rows(text(bppu))) == 1
-    # Penamaan Bupot membaca keduanya dalam satu folder: BPPU (C.3/A.2) dan BPBS (C.2/A.3).
+    # Nama berkas bisa berubah (mis. sudah diberi nama oleh ExpCore), jadi dikenali dari nomor bukti.
+    bpbs = sorted((root / "BUPOT 2024").glob("*.pdf"))
+    bppu = sorted((root / "BUPOT 2026").glob("*.pdf"))
+    assert all(len(ExpCore._extract_bupot2024_rows(text(path))) == 1 for path in bpbs)
+    assert all(len(ExpCore._extract_bupot_rows(text(path))) == 1 for path in bppu)
+    # Penamaan Bupot membaca semuanya dalam satu folder: BPPU (C.3/A.2), BPBS lama (C.2/A.3),
+    # dan BPBS tata letak NITKU 2000029637 (C.3/A.4).
     expected = {
-        "pemotong": {"BPPU": "ADIRA DINAMIKA MULTI FINANCE TBK - 2507UMKHM - 12-2025 - TIDAK FINAL - NORMAL.pdf",
-                     "BPBS": "BFI FINANCE INDONESIA TBK - 2000000001 - 01-2024 - TIDAK FINAL - NORMAL.pdf"},
-        "penerima": {"BPPU": "MITRACOLL SARANA JAYA - 2507UMKHM - 12-2025 - TIDAK FINAL - NORMAL.pdf",
-                     "BPBS": "MITRACOLL SARANA JAYA - 2000000001 - 01-2024 - TIDAK FINAL - NORMAL.pdf"},
+        "pemotong": {"2507UMKHM": "ADIRA DINAMIKA MULTI FINANCE TBK - 2507UMKHM - 12-2025 - TIDAK FINAL - NORMAL.pdf",
+                     "2000000001": "BFI FINANCE INDONESIA TBK - 2000000001 - 01-2024 - TIDAK FINAL - NORMAL.pdf",
+                     "2000029637": "BUSSAN AUTO FINANCE - 2000029637 - 12-2024 - TIDAK FINAL - NORMAL.pdf"},
+        "penerima": {"2507UMKHM": "MITRACOLL SARANA JAYA - 2507UMKHM - 12-2025 - TIDAK FINAL - NORMAL.pdf",
+                     "2000000001": "MITRACOLL SARANA JAYA - 2000000001 - 01-2024 - TIDAK FINAL - NORMAL.pdf",
+                     "2000029637": "MITRACOLL SARANA JAYA - 2000029637 - 12-2024 - TIDAK FINAL - NORMAL.pdf"},
     }
     with tempfile.TemporaryDirectory() as folder:
-        shutil.copy(bppu, folder)
-        shutil.copy(bpbs, folder)
+        for path in bppu + bpbs:
+            shutil.copy(path, folder)
         for source, names in expected.items():
             log_path, _ = ExpCore().process_rename_bupot(folder, name_source=source)
             with open(log_path, encoding="utf-8-sig", newline="") as log:
-                rows = {row["FORMULIR"]: row for row in csv.DictReader(log)}
-            assert {form: row["nama_baru"] for form, row in rows.items()} == names, rows
+                rows = {row["NOMOR_BUKTI"]: row for row in csv.DictReader(log)}
+            assert {nomor: row["nama_baru"] for nomor, row in rows.items()} == names, rows
             assert all(row["status"] in ("SIAP", "SUDAH SESUAI") for row in rows.values()), rows
-    print("PDF contoh Bupot 2024/2026: rekap dan penamaan BPPU + BPBS (C.3/C.2 dan A.2/A.3): ok", flush=True)
+    print("PDF contoh Bupot 2024/2026: rekap dan penamaan BPPU + BPBS lama & NITKU: ok", flush=True)
 
     # Jumlah transaksi per bulan; semua bulan harus SESUAI dan saldo akhir = saldo awal bulan berikutnya.
     for folder, counts in (("Rekening Giro", [28, 29, 20]), ("Rekening Tahapan", [81, 105, 101])):
@@ -908,6 +911,10 @@ C.5 NAMA PENANDATANGAN : I DEWA MADE SUSILA"""
         "Nama Pemotong": "ADIRA DINAMIKA MULTI FINANCE TBK.",
         "Tanggal Bukti Potong": "31 Januari 2025",
     }
+    # Tanggal C.4 tetap terbaca bila label berhuruf kecil atau tidak langsung diikuti C.5.
+    for varian in ("C.4 Tanggal : 31 Januari 2025", "C.4 TANGGAL : 31 Januari 2025\nelektronik"):
+        teks = bupot.replace("C.4 TANGGAL : 31 Januari 2025", varian)
+        assert ExpCore._extract_bupot_rows(teks)[0]["Tanggal Bukti Potong"] == "31 Januari 2025", varian
     # Baris objek pajak tanpa nominal: PDF gagal dengan pesan, bukan baris DPP/PPh 0.
     try:
         ExpCore._extract_bupot_rows(bupot.replace(" 3.700.000 2 74.000", ""))
@@ -982,6 +989,26 @@ Sesuai dengan ketentuan yang berlaku di, Direktorat Jenderal pajak mengatur bahw
         "Tanggal Bukti Potong": "31-01-2024",
         "Nama Penandatangan": "ARIEF LUTHFI BACHTIAR",
     }
+
+    # Tata letak NITKU: NPWP "15 / 16 digit" dan baris NITKU menggeser nomor bagian
+    # (A.4 Nama, C.3 Nama Wajib Pajak, C.4 Tanggal, C.5 Nama Penandatangan). Isi rekap harus sama.
+    nitku = (bupot2024
+             .replace("A.1 NPWP : 4 3 6 1 1 7 3 3 7 4 1 8 0 0 0", "A.1 NPWP : 436117337418000 / 0436117337418000")
+             .replace("A.3 Nama :", "A.3 NITKU : 0436117337418000000000\nA.4 Nama :")
+             .replace("C.1 NPWP : 0 1 3 1 6 1 1 1 2 5 0 1 0 0 1", "C.1 NPWP : 013161112501001 / 0013161112501001")
+             .replace("C.4 Nama Penandatangan", "C.5 Nama Penandatangan")
+             .replace("C.3 Tanggal", "C.4 Tanggal")
+             .replace("C.2 Nama Wajib Pajak", "C.2 NITKU : 0013161112501001000000\nC.3 Nama Wajib Pajak"))
+    assert ExpCore._extract_bupot2024_rows(nitku) == rows2024, ExpCore._extract_bupot2024_rows(nitku)
+    assert ExpCore._extract_bpbs_rename_data(nitku) == ExpCore._extract_bpbs_rename_data(bupot2024)
+
+    # Kolom identitas/tanggal yang terbaca "-" dicatat sebagai PERINGATAN, bukan diam-diam.
+    logs = []
+    kolom = ("Nama", "Tanggal Bukti Potong")
+    ExpCore(log=logs.append)._peringatkan_kosong("a.pdf", rows2024[0], kolom)
+    assert logs == [], logs
+    ExpCore(log=logs.append)._peringatkan_kosong("a.pdf", {**rows2024[0], "Tanggal Bukti Potong": "-"}, kolom)
+    assert logs == ["PERINGATAN: a.pdf — tidak terbaca: Tanggal Bukti Potong."], logs
 
     # Tarif BPBS bisa bulat, desimal titik, atau desimal koma; centang X opsional.
     for tarif, expected_tarif in (("2", 2.0), ("2.00", 2.0), ("2,00", 2.0),
