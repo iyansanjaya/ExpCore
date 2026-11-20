@@ -7,7 +7,10 @@ penomoran versi mengikuti [Semantic Versioning](https://semver.org/lang/id/) den
 `version` di `package.json` sebagai satu-satunya sumber. Versi 1.x memakai penomoran lama
 (`1.1`, `1.2`, …).
 
-## [Belum dirilis]
+## [3.2.1] - 2026-11-20
+
+Perbaikan pembacaan Bukti Potong 2024 pada formulir BPBS yang mencantumkan NITKU. Pengguna 3.0.0
+sampai 3.2.0 menerima versi ini lewat pembaruan otomatis.
 
 ### Diperbaiki
 
@@ -228,6 +231,7 @@ pilihan sumber nama pada Penamaan Bupot, dan pembaruan otomatis dari GitHub Rele
 
 - Rilis awal: ekstraksi PDF Bukti Potong dan Pajak Masukan dari Coretax ke Excel.
 
+[3.2.1]: https://github.com/iyansanjaya/ExpCore/compare/v3.2.0...v3.2.1
 [3.2.0]: https://github.com/iyansanjaya/ExpCore/compare/v3.1.0...v3.2.0
 [3.1.0]: https://github.com/iyansanjaya/ExpCore/compare/v3.0.0...v3.1.0
 [3.0.0]: https://github.com/iyansanjaya/ExpCore/compare/v2.0.1...v3.0.0
